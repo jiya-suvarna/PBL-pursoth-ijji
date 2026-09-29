@@ -187,7 +187,7 @@ A semaphore controls which process can access or modify the shared data at a par
 Therefore, shared memory provides the communication/data-sharing part, while the semaphore provides the synchronization part.
 
 
-# SHARED MEMORY vs SEMAPHORE
+SHARED MEMORY vs SEMAPHORE
 Shared Memory
 
 Used to share data between processes.
