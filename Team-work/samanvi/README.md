@@ -1,9 +1,7 @@
 INTER-PROCESS COMMUNICATION (IPC)
 PIPES AND MESSAGE QUEUES
 
-PIPES
-Definition
-A pipe is a simple IPC mechanism that provides a communication channel between processes.
+PIPES :A pipe is a simple IPC mechanism that provides a communication channel between processes.
 It allows one process to write data into the pipe and another process to read the data from it.
 The basic idea is:
 Process A → Pipe → Process B
@@ -11,7 +9,7 @@ A traditional pipe carries data as a stream of bytes.
 The operating system manages the pipe and provides the processes with the required read and write operations.
 Pipes are commonly used when processes need a simple way to transfer data.
 
-Working of a Pipe
+Working of a Pipe :
 The basic working of a pipe is:
 Process A → Write → Pipe → Read → Process B
 The steps are:
@@ -24,7 +22,7 @@ The pipe acts as a temporary communication channel between the processes.
 For example, if Process A produces the data "Hello", it can write it into the pipe.
 Process B can then read "Hello"from the pipe.
 
-Anonymous Pipe
+Anonymous Pipe:
 An anonymous pipe is a pipe that does not have a name in the file system.
 It is commonly used for communication between related processes, such as a parent process and its child process.
 For example:
@@ -32,7 +30,7 @@ Parent Process → Anonymous Pipe → Child Process
 It is useful when processes have a known relationship with each other.
 Anonymous pipes are generally simple and are suitable for short and straightforward communication.
 
-Named Pipe
+Named Pipe:
 A named pipe is a pipe that has a name provided by the operating system.
 Because it has a name, processes can use that name to access the communication channel.
 Named pipes can be used for communication between unrelated processes, depending on the operating system.
@@ -50,25 +48,24 @@ A simple real-life example is a physical water pipe.
 Water enters from one side and moves through the pipe to the other side.
 Similarly, data is written into one end of a pipe and read from the other end.
 
-Advantages of Pipes
+Advantages of Pipes:
 * Simple: Pipes are easy to understand and use.
 * Easy data transfer:They provide a straightforward way to transfer data.
 * Useful for related processes: Anonymous pipes are commonly used between related processes.
 * Temporary communication: Data can be passed through the pipe as needed.
 * Useful for connecting processes: The output of one process can be connected to the input of another process.
 
-Limitations of Pipes
+Limitations of Pipes:
 * A traditional pipe provides a byte stream, rather than separate messages.
 * Pipes are mainly used for local process communication.
 * They are not always suitable for complex communication requirements.
 * They may not be the best choice when processes need to exchange large or highly structured data.
 * Other IPC mechanisms may be more suitable depending on the application.
 
-Key Point
+Key Point:
 Pipe = A communication channel used to transfer a stream of data between processes.
 
-MESSAGE QUEUES
-Definition
+MESSAGE QUEUES:
 A message queue is an IPC mechanism in which processes communicate by sending and receiving separate messages through a queue.
 The sender places a message into the queue.
 The receiver reads the message from the queue when it is ready.
@@ -76,7 +73,7 @@ The basic idea is:
 Process A → Message Queue → Process B
 Unlike a traditional pipe, a message queue keeps data as separate messages.
 
-Working of a Message Queue
+Working of a Message Queue:
 The basic working is:
 Sender → Message Queue → Receiver
 The steps are:
@@ -96,7 +93,7 @@ If the server is busy processing Request 1, the other messages can remain in the
 This helps separate the sender's activity from the receiver's activity.
 Therefore, message queues are useful when processes do not need to operate at exactly the same time.
 
-Message Types
+Message Types:
 Message queues can support different types of messages depending on the operating system and implementation.
 For example, an application may use:
 * Request message
@@ -106,7 +103,7 @@ For example, an application may use:
 A receiver can use the message type or other queue rules to determine which message should be processed.
 This makes message queues useful for structured communication between processes.
 
-Example of Message Queue
+Example of Message Queue :
 Consider a server that receives requests from different processes.
 The requests may arrive as:
 Request 1 → Request 2 → Request 3
@@ -116,43 +113,43 @@ The basic flow is:
 Client → Message Queue → Server
 This is useful when many requests need to be handled by a process.
 
-Advantages of Message Queues
+Advantages of Message Queues:
 * Separate messages:Each message is treated as a separate unit.
 * Messages can wait: A message can remain in the queue until the receiver processes it.
 * Flexible communication:Sender and receiver do not always need to operate at exactly the same time.
 * Multiple messages: Several messages can wait in the queue.
 * OS managed:The operating system manages the queue and its operations.
 
-Limitations of Message Queues
+Limitations of Message Queues :
 * Message queues have system-dependent size limits.
 * They can have more overhead than direct shared-memory communication.
 * They may not be the best choice for very large amounts of continuously shared data.
 * The exact ordering and message-selection rules depend on the operating system or implementation.
 
-Key Point
+Key Point :
 Message Queue = A queue used by processes to send and receive separate messages.
 
-PIPE vs MESSAGE QUEUE
-*Data Form
+PIPE vs MESSAGE QUEUE:
+*Data Form :
  Pipe: Transfers data as a byte stream.
  Message Queue: Transfers data as separate messages.
-*Communication
+*Communication :
  Pipe: Stream-based communication.
  Message Queue: Message-based communication.
-*Message Boundaries
+*Message Boundaries :
  Pipe: Normal byte streams do not preserve separate message boundaries.
  Message Queue: Each message remains a separate unit.
-*Main Use
+*Main Use :
  Pipe: Used for simple data transfer between processes.
  Message Queue: Used for structured message exchange between processes.
-*Data Waiting
+*Data Waiting :
  Pipe: Data remains in the pipe until it is read.
  Message Queue: Messages remain in the queue until they are received.
-*Example
+*Example :
  Pipe: Producer → Pipe → Consumer
  Message Queue: Sender → Message Queue → Receiver
 
-Simple Difference to Remember
+Simple Difference to Remember :
 Pipe → Stream of data
 Message Queue → Separate messages
 Message Queue → Separate messages
