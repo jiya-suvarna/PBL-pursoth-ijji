@@ -7,8 +7,7 @@
 #include <time.h>
 #include <errno.h>
 
-#define FIFO_NAME "/tmp/simulator_log_fifo"
-#define BUFFER_SIZE 1024
+#include "ipc.h"   // IPC definitions
 
 void get_timestamp(char *buffer, size_t size)
 {
