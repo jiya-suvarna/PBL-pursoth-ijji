@@ -1,7 +1,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include "../ipc.h"
+
 
 #define MAX_INSTRUCTIONS 100
 #define MAX_LENGTH 100
@@ -121,28 +121,7 @@ int main(void) {
                 load_program();
                 break;
             case 2:
-                mqd_t queue;
-                IPCMessage message;
-
-                queue = ipc_open_queue(UI_TO_CORE_QUEUE, O_WRONLY, 1);
-
-                if (queue == (mqd_t)-1)
-                {
-                    perror("Unable to connect to Core");
-                    break;
-                }
-
-                message.type = IPC_MSG_COMMAND;
-                message.command = IPC_CMD_RUN;
-                message.status = 0;
-                snprintf(message.text, IPC_TEXT_SIZE, "Run program requested");
-
-                if (ipc_send(queue, &message))
-                    printf("RUN command sent to Core.\n");
-                else
-                    printf("Failed to send RUN command.\n");
-
-                mq_close(queue);
+                printf("Run Program selected.\n");
                 break;
             case 3:
                 printf("Single-step execution selected.\n");

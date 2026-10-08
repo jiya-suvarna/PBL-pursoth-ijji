@@ -69,7 +69,12 @@ int main()
     }
 
     printf("Core to Logger IPC queue connected!\n");
+    printf("Waiting for messages from Core...\n");
 
+    if (ipc_receive(core_queue, &ipc_message))
+    {
+        printf("Message received from Core: %s\n", ipc_message.text);
+    }
 
     /*
      * Create FIFO if it does not already exist
@@ -96,13 +101,6 @@ int main()
         perror("open FIFO");
         return 1;
     }
-
-printf("FIFO connected successfully!\n");
-
-if (ipc_receive(core_queue, &ipc_message))
-{
-    printf("Message received from Core: %s\n", ipc_message.text);
-}
 
     /*
      * Continuously receive messages
@@ -151,15 +149,15 @@ if (ipc_receive(core_queue, &ipc_message))
             /*
              * INFO messages go to execution.log
              */
-            else if (strncmp(buffer, "INFO:", 5) == 0)
+            else if (strncmp(buffer, "INFO|", 5) == 0)
             {
                 write_log(
                     "execution.log",
                     "INFO",
-                    buffer + 6
+                    buffer + 5
                 );
 
-                printf("[INFO] %s\n", buffer + 6);
+                printf("[INFO] %s\n", buffer + 5);
             }
 
             /*
@@ -208,22 +206,7 @@ if (ipc_receive(core_queue, &ipc_message))
      * Remove FIFO after Logger finishes
      */
     unlink(FIFO_NAME);
-while (1)
-{
-    if (ipc_receive(core_queue, &ipc_message))
-    {
-        printf("Message received from Core: %s\n", ipc_message.text);
 
-        write_log("execution.log", "INFO", ipc_message.text);
-printf("Log saved successfully.\n");
-            printf("Log saved successfully.\n");
-    }
-    else
-    {
-        printf("Failed to receive message from Core.\n");
-        break;
-    }
-}
     printf("\nLogger process stopped successfully.\n");
 
     return 0;

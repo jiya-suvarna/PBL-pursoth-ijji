@@ -161,6 +161,19 @@ if (ipc_receive(core_queue, &ipc_message))
 
                 printf("[INFO] %s\n", buffer + 6);
             }
+           /*
+            * WARNING messages go to error.log
+            */
+            else if (strncmp(buffer, "WARNING:", 8) == 0)
+            {
+               write_log(
+                   "error.log",
+                   "WARNING",
+                   buffer + 9
+               );
+
+               printf("[WARNING] %s\n", buffer + 9);
+            }
 
             /*
              * Unknown messages are treated as errors

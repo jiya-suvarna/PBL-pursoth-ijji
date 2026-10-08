@@ -4,7 +4,6 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "ipc.h"
 
 #define MAX 5
 #define FIFO_NAME "/tmp/simulator_log_fifo"
@@ -230,52 +229,12 @@ int main()
     int fd;
     int choice;
     char message[1024];
-    mqd_t ui_queue;
-mqd_t core_logger_queue;
-    IPCMessage ipc_message;
 
     printf("\n====================================\n");
     printf("          CORE PROCESS\n");
     printf("====================================\n");
 
-    ui_queue = ipc_open_queue(UI_TO_CORE_QUEUE, O_RDONLY, 1);
-
-    if (ui_queue == (mqd_t)-1)
-    {
-        perror("Error opening UI to Core queue");
-        return 1;
-    }
-
-    printf("UI to Core IPC queue connected!\n");
-
-    printf("Waiting for command from UI...\n");
-
-    if (!ipc_receive(ui_queue, &ipc_message))
-    {
-        printf("No command received from UI.\n");
-    }
-    else
-    {
-        if (ipc_message.command == IPC_CMD_RUN)
-        {
-            printf("RUN command received from UI!\n");
-        }
-        else
-        {
-            printf("Command received from UI: %d\n", ipc_message.command);
-        }
-    }
-
     printf("Connecting to Logger...\n");
-core_logger_queue = ipc_open_queue(CORE_TO_LOGGER_QUEUE, O_WRONLY, 1);
-
-if (core_logger_queue == (mqd_t)-1)
-{
-    perror("Error opening Core to Logger queue");
-    return 1;
-}
-
-printf("Core to Logger IPC queue connected!\n");
 
     /* Open FIFO for writing */
     fd = open(FIFO_NAME, O_WRONLY);
@@ -291,17 +250,6 @@ printf("Core to Logger IPC queue connected!\n");
     /* Send Core Process start message */
     strcpy(message, "INFO: Core process started successfully");
     send_log(fd, message);
-IPCMessage log_message;
-
-log_message.type = IPC_MSG_LOG;
-log_message.command = 0;
-log_message.status = 0;
-snprintf(log_message.text, IPC_TEXT_SIZE, "%s", message);
-
-if (ipc_send(core_logger_queue, &log_message))
-    printf("Log sent to Logger through POSIX MQ.\n");
-else
-    printf("Failed to send log to Logger.\n");
 
     sleep(1);
 
