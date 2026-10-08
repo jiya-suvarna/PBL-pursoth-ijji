@@ -1,0 +1,29 @@
+WEEK 2 - MULTI-PROCESS SIMULATOR & IPC
+BENCHMARK RESULTS
+
+Benchmark: Core Process
+
+Command:
+ /usr/bin/time -v ./core2
+
+Run 2:
+Elapsed Time: 1 min 25.75 sec
+User Time: 0.00 sec
+System Time: 0.00 sec
+Maximum Resident Set Size: 1916 KB
+Exit Status: 0
+
+Run 3:
+Elapsed Time: 1 min 30.02 sec
+User Time: 0.00 sec
+System Time: 0.00 sec
+Maximum Resident Set Size: 1912 KB
+Exit Status: 0
+
+Average:
+Elapsed Time: 1 min 27.89 sec
+Maximum Resident Set Size: 1914 KB
+
+Observation:
+The Core process completed successfully in both benchmark runs.
+The program used very low CPU time and approximately 1.9 MB maximum memory.
