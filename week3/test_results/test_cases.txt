@@ -1,0 +1,41 @@
+WEEK 3 - CPU SCHEDULING SIMULATOR
+TEST CASES
+
+TEST CASE 1: Different Arrival Times and Burst Times
+Number of processes: 3
+Round Robin Time Quantum: 2
+
+Process   Arrival Time   Burst Time   Priority
+P1        0              5            2
+P2        1              3            1
+P3        2              1            3
+
+Purpose:
+To check scheduling when processes arrive at different times
+and have different burst times and priorities.
+
+TEST CASE 2: Longer Processes and Preemption
+Number of processes: 3
+Round Robin Time Quantum: 2
+
+Process   Arrival Time   Burst Time   Priority
+P1        0              7            3
+P2        2              3            1
+P3        4              1            2
+
+Purpose:
+To check preemptive scheduling and compare the results of
+different scheduling algorithms.
+
+TEST CASE 3: CPU Idle Time
+Number of processes: 3
+Round Robin Time Quantum: 2
+
+Process   Arrival Time   Burst Time   Priority
+P1        2              3            2
+P2        6              2            1
+P3        7              1            3
+
+Purpose:
+To check whether the simulator handles CPU idle time correctly
+when no process is available for execution.

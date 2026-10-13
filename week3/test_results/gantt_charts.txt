@@ -1,0 +1,59 @@
+WEEK 3 - CPU SCHEDULING SIMULATOR
+GANTT CHART RECORDS
+
+TEST CASE 1
+P1: AT=0, BT=5, P2: AT=1, BT=3, P3: AT=2, BT=1
+RR Quantum: 2
+
+FCFS:
+P1 (0-5) | P2 (5-8) | P3 (8-9)
+
+SJF Non-Preemptive:
+P1 (0-5) | P3 (5-6) | P2 (6-9)
+
+SJF Preemptive:
+P1 (0-2) | P2 (2-4) | P3 (4-5) | P2 (5-6) | P1 (6-9)
+
+Round Robin:
+P1 (0-2) | P2 (2-4) | P3 (4-5) | P1 (5-7) | P2 (7-8) | P1 (8-9)
+
+Priority Non-Preemptive:
+P1 (0-5) | P2 (5-8) | P3 (8-9)
+
+Priority Preemptive:
+P1 (0-1) | P2 (1-4) | P1 (4-8) | P3 (8-9)
+
+
+TEST CASE 2
+P1: AT=0, BT=7, P2: AT=2, BT=3, P3: AT=4, BT=1
+RR Quantum: 2
+
+FCFS:
+P1 (0-7) | P2 (7-10) | P3 (10-11)
+
+SJF Non-Preemptive:
+P1 (0-7) | P3 (7-8) | P2 (8-11)
+
+SJF Preemptive:
+P1 (0-2) | P2 (2-5) | P3 (5-6) | P1 (6-11)
+
+Round Robin:
+P1 (0-2) | P2 (2-4) | P1 (4-6) | P3 (6-7) | P2 (7-8) | P1 (8-10) | P1 (10-11)
+
+Priority Non-Preemptive:
+P1 (0-7) | P2 (7-10) | P3 (10-11)
+
+Priority Preemptive:
+P1 (0-2) | P2 (2-5) | P3 (5-6) | P1 (6-11)
+
+
+TEST CASE 3
+P1: AT=2, BT=3, P2: AT=6, BT=2, P3: AT=7, BT=1
+RR Quantum: 2
+
+All six algorithms:
+Idle (0-2) | P1 (2-5) | Idle (5-6) | P2 (6-8) | P3 (8-9)
+
+Note:
+These are written execution timelines based on the previously recorded
+test results. They are documentation records, not screenshots.

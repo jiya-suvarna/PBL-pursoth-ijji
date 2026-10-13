@@ -1,0 +1,56 @@
+WEEK 3 - CPU SCHEDULING SIMULATOR
+SAMPLE RESULTS
+
+TEST CASE 1
+Processes:
+P1: AT=0, BT=5, Priority=2
+P2: AT=1, BT=3, Priority=1
+P3: AT=2, BT=1, Priority=3
+Round Robin Quantum: 2
+
+Algorithm              Avg WT   Avg TAT   Avg RT   CPU Utilization
+FCFS                    3.33      6.33     3.33       100%
+SJF Non-Preemptive      2.67      5.67     2.67       100%
+SJF Preemptive          1.67      4.67     0.00       100%
+Round Robin             3.33      6.33     1.00       100%
+Priority Non-Preemptive  3.33      6.33     3.33       100%
+Priority Preemptive     3.00      6.00     2.00       100%
+
+TEST CASE 2
+Processes:
+P1: AT=0, BT=7, Priority=3
+P2: AT=2, BT=3, Priority=1
+P3: AT=4, BT=1, Priority=2
+Round Robin Quantum: 2
+
+Algorithm              Avg WT   Avg TAT   Avg RT   CPU Utilization
+FCFS                    3.67      7.33     3.67       100%
+SJF Non-Preemptive      3.00      6.67     3.00       100%
+SJF Preemptive          1.67      5.33     0.33       100%
+Round Robin             3.00      6.67     0.67       100%
+Priority Non-Preemptive  3.67      7.33     3.67       100%
+Priority Preemptive     1.67      5.33     0.33       100%
+
+TEST CASE 3
+Processes:
+P1: AT=2, BT=3, Priority=2
+P2: AT=6, BT=2, Priority=1
+P3: AT=7, BT=1, Priority=3
+Round Robin Quantum: 2
+
+Algorithm              Avg WT   Avg TAT   Avg RT   CPU Utilization
+FCFS                    0.33      2.33     0.33       66.67%
+SJF Non-Preemptive      0.33      2.33     0.33       66.67%
+SJF Preemptive          0.33      2.33     0.33       66.67%
+Round Robin             0.33      2.33     0.33       66.67%
+Priority Non-Preemptive  0.33      2.33     0.33       66.67%
+Priority Preemptive     0.33      2.33     0.33       66.67%
+
+Note:
+WT = Waiting Time
+TAT = Turnaround Time
+RT = Response Time
+AT = Arrival Time
+BT = Burst Time
+Lower average waiting and turnaround times generally indicate better
+performance for the given test case. Results depend on process inputs.
