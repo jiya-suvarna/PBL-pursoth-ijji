@@ -1,0 +1,13 @@
+digraph RAG {
+rankdir=LR;
+label="Resource Allocation Graph";
+labelloc=t;
+P1 [shape=circle, label="P1", style=filled, fillcolor=lightcoral];
+P2 [shape=circle, label="P2", style=filled, fillcolor=lightcoral];
+R1 [shape=box, label="R1", style=filled, fillcolor=lightyellow];
+R2 [shape=box, label="R2", style=filled, fillcolor=lightyellow];
+R1 -> P1 [label="Allocated: 1", color=green];
+P1 -> R2 [label="Request: 1", color=orange];
+P2 -> R1 [label="Request: 1", color=orange];
+R2 -> P2 [label="Allocated: 1", color=green];
+}
