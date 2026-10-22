@@ -1,0 +1,556 @@
+#include <gtk/gtk.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#define MAX_P 10
+#define MAX_R 10
+
+static GtkWidget *window;
+static GtkWidget *process_spin, *resource_spin;
+static GtkWidget *allocation_grid, *maximum_grid, *available_grid;
+static GtkWidget *need_view, *status_label;
+
+static GtkWidget *alloc_entries[MAX_P][MAX_R];
+static GtkWidget *max_entries[MAX_P][MAX_R];
+static GtkWidget *avail_entries[MAX_R];
+
+static int P = 3, R = 3;
+static int allocation[MAX_P][MAX_R];
+static int maximum[MAX_P][MAX_R];
+static int need[MAX_P][MAX_R];
+static int available[MAX_R];
+static gboolean data_loaded = FALSE;
+
+/* ---------- UI HELPERS ---------- */
+
+static GtkWidget *make_label(const char *text)
+{
+    GtkWidget *label = gtk_label_new(text);
+    gtk_widget_set_halign(label, GTK_ALIGN_START);
+    return label;
+}
+
+static GtkWidget *make_button(const char *text)
+{
+    GtkWidget *button = gtk_button_new_with_label(text);
+    gtk_widget_set_size_request(button, 125, 36);
+    return button;
+}
+
+static void set_status(const char *text)
+{
+    gtk_label_set_text(GTK_LABEL(status_label), text);
+}
+
+static GtkWidget *create_grid(void)
+{
+    GtkWidget *grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 6);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 8);
+    gtk_container_set_border_width(GTK_CONTAINER(grid), 8);
+    return grid;
+}
+
+static void clear_grid(GtkWidget *grid)
+{
+    GList *children =
+        gtk_container_get_children(GTK_CONTAINER(grid));
+
+    for (GList *item = children; item != NULL; item = item->next)
+        gtk_widget_destroy(GTK_WIDGET(item->data));
+
+    g_list_free(children);
+}
+
+/* ---------- BUILD INPUT FORMS ---------- */
+
+static void build_input_fields(void)
+{
+    char text[32];
+
+    P = gtk_spin_button_get_value_as_int(
+        GTK_SPIN_BUTTON(process_spin));
+
+    R = gtk_spin_button_get_value_as_int(
+        GTK_SPIN_BUTTON(resource_spin));
+
+    clear_grid(allocation_grid);
+    clear_grid(maximum_grid);
+    clear_grid(available_grid);
+
+    /* Column headings */
+    for (int j = 0; j < R; j++)
+    {
+        snprintf(text, sizeof(text), "R%d", j);
+        gtk_grid_attach(GTK_GRID(allocation_grid),
+                        make_label(text), j + 1, 0, 1, 1);
+        gtk_grid_attach(GTK_GRID(maximum_grid),
+                        make_label(text), j + 1, 0, 1, 1);
+        gtk_grid_attach(GTK_GRID(available_grid),
+                        make_label(text), j, 0, 1, 1);
+    }
+
+    /* Process rows and editable matrix fields */
+    for (int i = 0; i < P; i++)
+    {
+        snprintf(text, sizeof(text), "P%d", i);
+        gtk_grid_attach(GTK_GRID(allocation_grid),
+                        make_label(text), 0, i + 1, 1, 1);
+        gtk_grid_attach(GTK_GRID(maximum_grid),
+                        make_label(text), 0, i + 1, 1, 1);
+
+        for (int j = 0; j < R; j++)
+        {
+            alloc_entries[i][j] = gtk_entry_new();
+            max_entries[i][j] = gtk_entry_new();
+
+            gtk_entry_set_width_chars(
+                GTK_ENTRY(alloc_entries[i][j]), 5);
+            gtk_entry_set_width_chars(
+                GTK_ENTRY(max_entries[i][j]), 5);
+
+            gtk_entry_set_input_purpose(
+                GTK_ENTRY(alloc_entries[i][j]),
+                GTK_INPUT_PURPOSE_DIGITS);
+            gtk_entry_set_input_purpose(
+                GTK_ENTRY(max_entries[i][j]),
+                GTK_INPUT_PURPOSE_DIGITS);
+
+            gtk_entry_set_text(
+                GTK_ENTRY(alloc_entries[i][j]), "0");
+            gtk_entry_set_text(
+                GTK_ENTRY(max_entries[i][j]), "0");
+
+            gtk_grid_attach(GTK_GRID(allocation_grid),
+                            alloc_entries[i][j],
+                            j + 1, i + 1, 1, 1);
+            gtk_grid_attach(GTK_GRID(maximum_grid),
+                            max_entries[i][j],
+                            j + 1, i + 1, 1, 1);
+        }
+    }
+
+    /* Available vector fields */
+    for (int j = 0; j < R; j++)
+    {
+        avail_entries[j] = gtk_entry_new();
+        gtk_entry_set_width_chars(
+            GTK_ENTRY(avail_entries[j]), 5);
+        gtk_entry_set_input_purpose(
+            GTK_ENTRY(avail_entries[j]),
+            GTK_INPUT_PURPOSE_DIGITS);
+        gtk_entry_set_text(GTK_ENTRY(avail_entries[j]), "0");
+
+        gtk_grid_attach(GTK_GRID(available_grid),
+                        avail_entries[j], j, 1, 1, 1);
+    }
+
+    data_loaded = FALSE;
+
+    gtk_text_buffer_set_text(
+        gtk_text_view_get_buffer(GTK_TEXT_VIEW(need_view)),
+        "Enter resource values, then click Calculate Need.",
+        -1);
+
+    gtk_widget_show_all(window);
+    set_status("Ready | Enter resource data");
+}
+
+/* ---------- VALIDATE INPUT ---------- */
+
+static gboolean read_entry(GtkWidget *entry, int *value)
+{
+    const char *text =
+        gtk_entry_get_text(GTK_ENTRY(entry));
+    char *end;
+    long number;
+
+    if (text[0] == '\0')
+        return FALSE;
+
+    number = strtol(text, &end, 10);
+
+    if (*end != '\0' || number < 0 || number > 1000000)
+        return FALSE;
+
+    *value = (int)number;
+    return TRUE;
+}
+
+static gboolean collect_data(void)
+{
+    for (int i = 0; i < P; i++)
+    {
+        for (int j = 0; j < R; j++)
+        {
+            if (!read_entry(alloc_entries[i][j],
+                            &allocation[i][j]) ||
+                !read_entry(max_entries[i][j],
+                            &maximum[i][j]))
+            {
+                set_status("Error | Enter valid non-negative integers");
+                return FALSE;
+            }
+
+            if (maximum[i][j] < allocation[i][j])
+            {
+                set_status("Error | Maximum must be >= Allocation");
+                return FALSE;
+            }
+
+            need[i][j] =
+                maximum[i][j] - allocation[i][j];
+        }
+    }
+
+    for (int j = 0; j < R; j++)
+    {
+        if (!read_entry(avail_entries[j], &available[j]))
+        {
+            set_status("Error | Invalid Available Vector");
+            return FALSE;
+        }
+    }
+
+    data_loaded = TRUE;
+    return TRUE;
+}
+
+/* ---------- DISPLAY OUTPUT ---------- */
+
+static void show_output(const char *text)
+{
+    gtk_text_buffer_set_text(
+        gtk_text_view_get_buffer(GTK_TEXT_VIEW(need_view)),
+        text, -1);
+}
+
+static void on_calculate(GtkButton *button, gpointer data)
+{
+    (void)button;
+    (void)data;
+
+    if (!collect_data())
+        return;
+
+    char output[8192];
+    int used = 0;
+
+    used += snprintf(output + used, sizeof(output) - used,
+                     "NEED MATRIX\nNeed = Maximum - Allocation\n\n");
+
+    for (int i = 0; i < P && used < (int)sizeof(output); i++)
+    {
+        used += snprintf(output + used, sizeof(output) - used,
+                         "P%d: ", i);
+
+        for (int j = 0; j < R && used < (int)sizeof(output); j++)
+            used += snprintf(output + used,
+                             sizeof(output) - used,
+                             "%d  ", need[i][j]);
+
+        used += snprintf(output + used,
+                         sizeof(output) - used, "\n");
+    }
+
+    show_output(output);
+    set_status("Success | Input validated; Need Matrix calculated");
+}
+
+static void on_view_matrices(GtkButton *button, gpointer data)
+{
+    (void)button;
+    (void)data;
+
+    if (!data_loaded && !collect_data())
+        return;
+
+    char output[8192];
+    int used = 0;
+
+    for (int matrix = 0; matrix < 3; matrix++)
+    {
+        const char *title =
+            matrix == 0 ? "ALLOCATION MATRIX" :
+            matrix == 1 ? "MAXIMUM MATRIX" : "NEED MATRIX";
+
+        int (*values)[MAX_R] =
+            matrix == 0 ? allocation :
+            matrix == 1 ? maximum : need;
+
+        used += snprintf(output + used, sizeof(output) - used,
+                         "%s\n", title);
+
+        for (int i = 0; i < P && used < (int)sizeof(output); i++)
+        {
+            used += snprintf(output + used,
+                             sizeof(output) - used, "P%d: ", i);
+
+            for (int j = 0; j < R &&
+                 used < (int)sizeof(output); j++)
+                used += snprintf(output + used,
+                                 sizeof(output) - used,
+                                 "%d  ", values[i][j]);
+
+            used += snprintf(output + used,
+                             sizeof(output) - used, "\n");
+        }
+
+        used += snprintf(output + used,
+                         sizeof(output) - used, "\n");
+    }
+
+    used += snprintf(output + used, sizeof(output) - used,
+                     "AVAILABLE RESOURCE VECTOR\n");
+
+    for (int j = 0; j < R && used < (int)sizeof(output); j++)
+        used += snprintf(output + used,
+                         sizeof(output) - used,
+                         "R%d = %d   ", j, available[j]);
+
+    show_output(output);
+    set_status("All matrices displayed");
+}
+
+/* ---------- BUTTON CALLBACKS ---------- */
+
+static void on_configure(GtkButton *button, gpointer data)
+{
+    (void)button;
+    (void)data;
+
+    build_input_fields();
+    set_status("Configuration applied | Enter resource data");
+}
+
+static void on_sample(GtkButton *button, gpointer data)
+{
+    (void)button;
+    (void)data;
+
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(process_spin), 3);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(resource_spin), 3);
+
+    build_input_fields();
+
+    int a[3][3] = {{1, 0, 1}, {1, 1, 0}, {0, 1, 1}};
+    int m[3][3] = {{2, 1, 1}, {1, 2, 1}, {1, 1, 2}};
+    int v[3] = {1, 1, 1};
+    char text[24];
+
+    for (int i = 0; i < 3; i++)
+    {
+        for (int j = 0; j < 3; j++)
+        {
+            snprintf(text, sizeof(text), "%d", a[i][j]);
+            gtk_entry_set_text(
+                GTK_ENTRY(alloc_entries[i][j]), text);
+
+            snprintf(text, sizeof(text), "%d", m[i][j]);
+            gtk_entry_set_text(
+                GTK_ENTRY(max_entries[i][j]), text);
+        }
+    }
+
+    for (int j = 0; j < 3; j++)
+    {
+        snprintf(text, sizeof(text), "%d", v[j]);
+        gtk_entry_set_text(GTK_ENTRY(avail_entries[j]), text);
+    }
+
+    if (collect_data())
+        set_status("Sample data loaded successfully");
+}
+
+static void on_reset(GtkButton *button, gpointer data)
+{
+    (void)button;
+    (void)data;
+
+    build_input_fields();
+    show_output("Data reset. Enter new resource values.");
+    set_status("Reset complete | No data loaded");
+}
+
+static void on_simulate(GtkButton *button, gpointer data)
+{
+    (void)button;
+    (void)data;
+
+    if (!data_loaded && !collect_data())
+        return;
+
+    show_output(
+        "SIMULATION REQUEST\n\n"
+        "Input matrices have been validated.\n"
+        "The Need Matrix has been calculated.\n\n"
+        "Connect the Banker's Algorithm and deadlock detection "
+        "modules to determine the actual system state.\n");
+
+    set_status("Input ready | Algorithm integration required");
+}
+
+static void on_exit_clicked(GtkButton *button, gpointer data)
+{
+    (void)button;
+    (void)data;
+    gtk_window_close(GTK_WINDOW(window));
+}
+
+/* ---------- MAIN WINDOW ---------- */
+
+int main(int argc, char *argv[])
+{
+    gtk_init(&argc, &argv);
+
+    window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(
+        GTK_WINDOW(window),
+        "Interactive Deadlock Simulation System");
+    gtk_window_set_default_size(GTK_WINDOW(window), 1050, 760);
+    gtk_container_set_border_width(GTK_CONTAINER(window), 15);
+
+    g_signal_connect(window, "destroy",
+                     G_CALLBACK(gtk_main_quit), NULL);
+
+    GtkWidget *root =
+        gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_container_add(GTK_CONTAINER(window), root);
+
+    GtkWidget *heading = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(heading),
+        "<span size='xx-large' weight='bold'>"
+        "INTERACTIVE DEADLOCK SIMULATION SYSTEM</span>\n"
+        "<span size='medium'>Member 1 | GUI and User Interface</span>");
+
+    gtk_box_pack_start(GTK_BOX(root), heading, FALSE, FALSE, 8);
+
+    /* Configuration controls */
+    GtkWidget *config =
+        gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_box_pack_start(GTK_BOX(root), config, FALSE, FALSE, 4);
+
+    gtk_box_pack_start(GTK_BOX(config),
+        make_label("Processes:"), FALSE, FALSE, 0);
+
+    process_spin = gtk_spin_button_new_with_range(1, MAX_P, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(process_spin), 3);
+    gtk_box_pack_start(GTK_BOX(config),
+        process_spin, FALSE, FALSE, 0);
+
+    gtk_box_pack_start(GTK_BOX(config),
+        make_label("Resource types:"), FALSE, FALSE, 0);
+
+    resource_spin = gtk_spin_button_new_with_range(1, MAX_R, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(resource_spin), 3);
+    gtk_box_pack_start(GTK_BOX(config),
+        resource_spin, FALSE, FALSE, 0);
+
+    GtkWidget *configure_btn = make_button("Apply Configuration");
+    gtk_box_pack_start(GTK_BOX(config),
+        configure_btn, FALSE, FALSE, 0);
+
+    g_signal_connect(configure_btn, "clicked",
+                     G_CALLBACK(on_configure), NULL);
+
+    /* Matrix input forms */
+    GtkWidget *inputs =
+        gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_box_pack_start(GTK_BOX(root), inputs, FALSE, FALSE, 4);
+
+    GtkWidget *alloc_frame = gtk_frame_new("Allocation Matrix");
+    allocation_grid = create_grid();
+    gtk_container_add(GTK_CONTAINER(alloc_frame), allocation_grid);
+    gtk_box_pack_start(GTK_BOX(inputs),
+        alloc_frame, FALSE, FALSE, 0);
+
+    GtkWidget *max_frame = gtk_frame_new("Maximum Matrix");
+    maximum_grid = create_grid();
+    gtk_container_add(GTK_CONTAINER(max_frame), maximum_grid);
+    gtk_box_pack_start(GTK_BOX(inputs),
+        max_frame, FALSE, FALSE, 0);
+
+    GtkWidget *avail_frame =
+        gtk_frame_new("Available Resource Vector");
+    available_grid = create_grid();
+    gtk_container_add(GTK_CONTAINER(avail_frame), available_grid);
+    gtk_box_pack_start(GTK_BOX(inputs),
+        avail_frame, FALSE, FALSE, 0);
+
+    /* Action buttons */
+    GtkWidget *actions =
+        gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_box_pack_start(GTK_BOX(root), actions, FALSE, FALSE, 5);
+
+    GtkWidget *sample_btn = make_button("Load Sample Data");
+    GtkWidget *calc_btn = make_button("Calculate Need");
+    GtkWidget *view_btn = make_button("View All Matrices");
+    GtkWidget *sim_btn = make_button("Run Simulation");
+    GtkWidget *reset_btn = make_button("Reset");
+    GtkWidget *exit_btn = make_button("Exit");
+
+    gtk_box_pack_start(GTK_BOX(actions),
+        sample_btn, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(actions),
+        calc_btn, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(actions),
+        view_btn, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(actions),
+        sim_btn, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(actions),
+        reset_btn, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(actions),
+        exit_btn, TRUE, TRUE, 0);
+
+    g_signal_connect(sample_btn, "clicked",
+                     G_CALLBACK(on_sample), NULL);
+    g_signal_connect(calc_btn, "clicked",
+                     G_CALLBACK(on_calculate), NULL);
+    g_signal_connect(view_btn, "clicked",
+                     G_CALLBACK(on_view_matrices), NULL);
+    g_signal_connect(sim_btn, "clicked",
+                     G_CALLBACK(on_simulate), NULL);
+    g_signal_connect(reset_btn, "clicked",
+                     G_CALLBACK(on_reset), NULL);
+    g_signal_connect(exit_btn, "clicked",
+                     G_CALLBACK(on_exit_clicked), NULL);
+
+    /* Output panel */
+    GtkWidget *result_frame = gtk_frame_new("Matrix Display / Output");
+    gtk_box_pack_start(GTK_BOX(root),
+        result_frame, TRUE, TRUE, 4);
+
+    need_view = gtk_text_view_new();
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(need_view), FALSE);
+    gtk_text_view_set_cursor_visible(GTK_TEXT_VIEW(need_view), FALSE);
+    gtk_text_view_set_monospace(GTK_TEXT_VIEW(need_view), TRUE);
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(need_view),
+                                GTK_WRAP_WORD_CHAR);
+
+    gtk_text_buffer_set_text(
+        gtk_text_view_get_buffer(GTK_TEXT_VIEW(need_view)),
+        "Click Load Sample Data or enter resource values.",
+        -1);
+
+    GtkWidget *scroll =
+        gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(
+        GTK_SCROLLED_WINDOW(scroll),
+        GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+
+    gtk_container_add(GTK_CONTAINER(scroll), need_view);
+    gtk_container_add(GTK_CONTAINER(result_frame), scroll);
+
+    /* System status */
+    status_label = gtk_label_new("Ready | Enter resource data");
+    gtk_widget_set_halign(status_label, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(root),
+        status_label, FALSE, FALSE, 5);
+
+    build_input_fields();
+
+    gtk_widget_show_all(window);
+    gtk_main();
+
+    return 0;
+}

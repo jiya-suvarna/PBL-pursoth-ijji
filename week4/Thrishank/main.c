@@ -72,82 +72,32 @@ void print_matrix(const char *title, ResourceState *s,
         printf("\n");
     }
 }
+void prepare_resource_state(
+    ResourceState *s,
+    int p,
+    int r,
+    int gui_total[20],
+    int gui_allocation[20][20],
+    int gui_maximum[20][20]
+)
+{
+    int i, j;
 
-int main(void) {
-    ResourceState s = {0};
-    int mode;
+    s->processes = p;
+    s->resources = r;
 
-    printf("=== Deadlock Simulation: Member 2 ===\n");
-    printf("1. Manual input\n2. Random generation\nChoice: ");
+    for (j = 0; j < r; j++)
+        s->total[j] = gui_total[j];
 
-    if (scanf("%d", &mode) != 1 || (mode != 1 && mode != 2)) {
-        printf("Invalid choice.\n");
-        return 1;
-    }
-
-    printf("Number of processes (1-%d): ", MAX_P);
-    if (scanf("%d", &s.processes) != 1) return 1;
-
-    printf("Number of resource types (1-%d): ", MAX_R);
-    if (scanf("%d", &s.resources) != 1) return 1;
-
-    if (s.processes < 1 || s.processes > MAX_P ||
-        s.resources < 1 || s.resources > MAX_R) {
-        printf("Invalid dimensions.\n");
-        return 1;
-    }
-
-    if (mode == 1) {
-        for (int j = 0; j < s.resources; j++) {
-            printf("Total instances of R%d: ", j);
-            if (scanf("%d", &s.total[j]) != 1) return 1;
-        }
-
-        printf("Enter Allocation Matrix row by row:\n");
-        for (int i = 0; i < s.processes; i++) {
-            printf("P%d: ", i);
-            for (int j = 0; j < s.resources; j++)
-                if (scanf("%d", &s.allocation[i][j]) != 1)
-                    return 1;
-        }
-
-        printf("Enter Maximum Matrix row by row:\n");
-        for (int i = 0; i < s.processes; i++) {
-            printf("P%d: ", i);
-            for (int j = 0; j < s.resources; j++)
-                if (scanf("%d", &s.maximum[i][j]) != 1)
-                    return 1;
-        }
-    } else {
-        for (int j = 0; j < s.resources; j++) {
-            s.total[j] = 3 + rand() % 8;
-            int remaining = s.total[j];
-
-            for (int i = 0; i < s.processes; i++) {
-                int a = remaining > 0
-                    ? rand() % (remaining + 1) : 0;
-                s.allocation[i][j] = a;
-                remaining -= a;
-                s.maximum[i][j] =
-                    a + rand() % (s.total[j] - a + 1);
-            }
+    for (i = 0; i < p; i++)
+    {
+        for (j = 0; j < r; j++)
+        {
+            s->allocation[i][j] = gui_allocation[i][j];
+            s->maximum[i][j] = gui_maximum[i][j];
         }
     }
 
-    if (!validate(&s)) {
-        printf("Invalid data. Check totals, allocations, and maximums.\n");
-        return 1;
-    }
-
-    calculate(&s);
-
-    print_vector("Total Resources", &s, s.total);
-    print_matrix("Allocation Matrix", &s, s.allocation);
-    print_matrix("Maximum Matrix", &s, s.maximum);
-    print_vector("Available Vector", &s, s.available);
-    print_matrix("Need Matrix", &s, s.need);
-
-    printf("\nResource data prepared for Member 3 and Member 4.\n");
-    return 0;
+    calculate(s);
 }
 
