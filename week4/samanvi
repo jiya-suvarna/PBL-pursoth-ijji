@@ -1,9 +1,12 @@
 #include <gtk/gtk.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "banker_integration.h"
+#include "thrishank_integration.h"
+#include "diganth_integration.h"
 
-#define MAX_P 10
-#define MAX_R 10
+#define MAX_P 20
+#define MAX_R 20
 
 static GtkWidget *window;
 static GtkWidget *process_spin, *resource_spin;
@@ -20,6 +23,7 @@ static int maximum[MAX_P][MAX_R];
 static int need[MAX_P][MAX_R];
 static int available[MAX_R];
 static gboolean data_loaded = FALSE;
+static ResourceState resource_state;
 
 /* ---------- UI HELPERS ---------- */
 
@@ -377,19 +381,322 @@ static void on_simulate(GtkButton *button, gpointer data)
     (void)button;
     (void)data;
 
+    int safeSequence[20];
+    int safe;
+    char output[2048];
+    int pos = 0;
+
+    int deadlockedProcesses[20];
+    int completionOrder[20];
+    int deadlockedCount = 0;
+    int completionCount = 0;
+    int noDeadlock;
+
     if (!data_loaded && !collect_data())
         return;
 
-    show_output(
-        "SIMULATION REQUEST\n\n"
-        "Input matrices have been validated.\n"
-        "The Need Matrix has been calculated.\n\n"
-        "Connect the Banker's Algorithm and deadlock detection "
-        "modules to determine the actual system state.\n");
+    int total[20];
 
-    set_status("Input ready | Algorithm integration required");
+for (int j = 0; j < R; j++)
+{
+    total[j] = available[j];
+
+    for (int i = 0; i < P; i++)
+        total[j] += allocation[i][j];
+}
+prepare_resource_state(
+    &resource_state,
+    P,
+    R,
+    total,
+    allocation,
+    maximum
+);
+
+    double utilization[20];
+
+    for (int j = 0; j < R; j++)
+    {
+        int allocated = total[j] - available[j];
+
+        if (total[j] > 0)
+            utilization[j] =
+                ((double)allocated / total[j]) * 100.0;
+        else
+            utilization[j] = 0.0;
+    }
+
+        safe = run_banker_from_gui(
+        P,
+        R,
+        allocation,
+        maximum,
+        available,
+        safeSequence
+    );
+
+    noDeadlock = run_deadlock_detection_from_gui(
+    P,
+    R,
+    allocation,
+    need,
+    available,
+    deadlockedProcesses,
+    completionOrder,
+    &deadlockedCount,
+    &completionCount
+);
+
+    pos += snprintf(output + pos, sizeof(output) - pos,
+                    "RESOURCE UTILIZATION\n\n");
+
+    for (int j = 0; j < R; j++)
+    {
+        pos += snprintf(output + pos, sizeof(output) - pos,
+                        "R%d: %.2f%%\n",
+                        j + 1,
+                        utilization[j]);
+    }
+
+    pos += snprintf(output + pos, sizeof(output) - pos, "\n");
+    pos += snprintf(output + pos, sizeof(output) - pos,
+                    "BANKER'S ALGORITHM RESULT\n\n");
+
+    if (safe)
+    {
+        pos += snprintf(output + pos, sizeof(output) - pos,
+                        "System State: SAFE\n\n");
+
+        pos += snprintf(output + pos, sizeof(output) - pos,
+                        "Safe Sequence: ");
+
+        for (int i = 0; i < P; i++)
+        {
+            pos += snprintf(output + pos, sizeof(output) - pos,
+                            "P%d", safeSequence[i]);
+
+            if (i < P - 1)
+                pos += snprintf(output + pos, sizeof(output) - pos,
+                                " -> ");
+        }
+
+        pos += snprintf(output + pos, sizeof(output) - pos, "\n");
+        set_status("Banker's Algorithm | SAFE");
+    }
+    else
+    {
+        pos += snprintf(output + pos, sizeof(output) - pos,
+                        "System State: UNSAFE\n\n");
+
+        pos += snprintf(output + pos, sizeof(output) - pos,
+                        "No safe sequence exists.\n");
+
+        set_status("Banker's Algorithm | UNSAFE");
+    }
+pos += snprintf(output + pos, sizeof(output) - pos,
+                "\nDEADLOCK DETECTION RESULT\n\n");
+
+if (noDeadlock)
+{
+    pos += snprintf(output + pos, sizeof(output) - pos,
+                    "Result: No deadlock detected.\n");
+
+    if (completionCount > 0)
+    {
+        pos += snprintf(output + pos, sizeof(output) - pos,
+                        "Completion Order: ");
+
+        for (int i = 0; i < completionCount; i++)
+        {
+            pos += snprintf(output + pos, sizeof(output) - pos,
+                            "P%d",
+                            completionOrder[i] + 1);
+
+            if (i < completionCount - 1)
+                pos += snprintf(output + pos, sizeof(output) - pos,
+                                " -> ");
+        }
+
+        pos += snprintf(output + pos, sizeof(output) - pos, "\n");
+    }
+}
+else
+{
+    pos += snprintf(output + pos, sizeof(output) - pos,
+                    "Result: DEADLOCK DETECTED!\n");
+
+    pos += snprintf(output + pos, sizeof(output) - pos,
+                    "Affected Processes: ");
+
+    for (int i = 0; i < deadlockedCount; i++)
+    {
+        pos += snprintf(output + pos, sizeof(output) - pos,
+                        "P%d",
+                        deadlockedProcesses[i] + 1);
+
+        if (i < deadlockedCount - 1)
+            pos += snprintf(output + pos, sizeof(output) - pos,
+                            ", ");
+    }
+
+    pos += snprintf(output + pos, sizeof(output) - pos, "\n");
+}
+    show_output(output);
 }
 
+static void on_view_rag(GtkButton *button, gpointer data)
+{
+    (void)button;
+    (void)data;
+
+    if (!data_loaded && !collect_data())
+        return;
+
+    int deadlockedProcesses[20];
+    int completionOrder[20];
+    int deadlockedCount = 0;
+    int completionCount = 0;
+
+    int noDeadlock = run_deadlock_detection_from_gui(
+        P,
+        R,
+        allocation,
+        need,
+        available,
+        deadlockedProcesses,
+        completionOrder,
+        &deadlockedCount,
+        &completionCount
+    );
+
+    int ragCreated = run_rag_from_gui(
+        P,
+        R,
+        allocation,
+        need,
+        deadlockedProcesses,
+        deadlockedCount
+    );
+
+    if (!ragCreated)
+    {
+        show_output("Failed to create Resource Allocation Graph.");
+        set_status("RAG creation failed");
+        return;
+    }
+
+    show_output(
+        "RESOURCE ALLOCATION GRAPH\n\n"
+        "RAG generated successfully.\n\n"
+        "File: rag.dot\n"
+        "Visualization: rag.png"
+    );
+
+    set_status("RAG generated successfully");
+}
+
+/* ---------- DEADLOCK RECOVERY ---------- */
+
+static void on_recover(GtkButton *button, gpointer data)
+{
+    (void)button;
+    (void)data;
+
+    if (!data_loaded && !collect_data())
+        return;
+
+    int deadlockedProcesses[20];
+    int completionOrder[20];
+    int deadlockedCount = 0;
+    int completionCount = 0;
+
+    /* Detect deadlock using the current GUI data */
+    int noDeadlock = run_deadlock_detection_from_gui(
+        P,
+        R,
+        allocation,
+        need,
+        available,
+        deadlockedProcesses,
+        completionOrder,
+        &deadlockedCount,
+        &completionCount
+    );
+
+    if (noDeadlock || deadlockedCount == 0)
+    {
+        show_output(
+            "No deadlock detected.\n\n"
+            "Recovery is not required."
+        );
+
+        set_status("No deadlock | Recovery not required");
+        return;
+    }
+
+    /* Recover the first deadlocked process */
+    int process = deadlockedProcesses[0];
+
+    int recovered = run_deadlock_recovery_from_gui(
+        P,
+        R,
+        allocation,
+        need,
+        available,
+        process
+    );
+
+    if (!recovered)
+    {
+        show_output("Recovery failed.");
+        set_status("Recovery failed");
+        return;
+    }
+
+    char output[1024];
+    int pos = 0;
+
+    pos += snprintf(
+        output + pos,
+        sizeof(output) - pos,
+        "DEADLOCK RECOVERY RESULT\n\n"
+        "Terminated Process: P%d\n"
+        "Resources released successfully.\n\n",
+        process + 1
+    );
+
+    pos += snprintf(
+        output + pos,
+        sizeof(output) - pos,
+        "Updated Available Resources: "
+    );
+
+    for (int j = 0; j < R; j++)
+    {
+        pos += snprintf(
+            output + pos,
+            sizeof(output) - pos,
+            "%d",
+            available[j]
+        );
+
+        if (j < R - 1)
+            pos += snprintf(
+                output + pos,
+                sizeof(output) - pos,
+                " "
+            );
+    }
+
+    pos += snprintf(
+        output + pos,
+        sizeof(output) - pos,
+        "\n"
+    );
+
+    show_output(output);
+    set_status("Deadlock recovered successfully");
+}
 static void on_exit_clicked(GtkButton *button, gpointer data)
 {
     (void)button;
@@ -486,6 +793,8 @@ int main(int argc, char *argv[])
     GtkWidget *calc_btn = make_button("Calculate Need");
     GtkWidget *view_btn = make_button("View All Matrices");
     GtkWidget *sim_btn = make_button("Run Simulation");
+    GtkWidget *recover_btn = make_button("Recover from Deadlock");
+    GtkWidget *rag_btn = make_button("View RAG");
     GtkWidget *reset_btn = make_button("Reset");
     GtkWidget *exit_btn = make_button("Exit");
 
@@ -497,6 +806,10 @@ int main(int argc, char *argv[])
         view_btn, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(actions),
         sim_btn, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(actions),
+        recover_btn, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(actions),
+        rag_btn, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(actions),
         reset_btn, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(actions),
@@ -510,6 +823,10 @@ int main(int argc, char *argv[])
                      G_CALLBACK(on_view_matrices), NULL);
     g_signal_connect(sim_btn, "clicked",
                      G_CALLBACK(on_simulate), NULL);
+    g_signal_connect(recover_btn, "clicked",
+                 G_CALLBACK(on_recover), NULL);
+    g_signal_connect(rag_btn, "clicked",
+                 G_CALLBACK(on_view_rag), NULL);
     g_signal_connect(reset_btn, "clicked",
                      G_CALLBACK(on_reset), NULL);
     g_signal_connect(exit_btn, "clicked",
