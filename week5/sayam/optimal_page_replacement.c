@@ -3,33 +3,11 @@
 #define MAX_PAGES 100
 #define MAX_FRAMES 20
 
-int main(void)
+void optimal_simulate(const int pages[], int n, int frame_count, int *hits_out, int *faults_out)
 {
-    int pages[MAX_PAGES], frames[MAX_FRAMES];
-    int n, frame_count, hits = 0, faults = 0;
+    int frames[MAX_FRAMES];
+    int hits = 0, faults = 0;
 
-    printf("=== OPTIMAL PAGE REPLACEMENT ===\n");
-
-    printf("Enter number of pages: ");
-    if (scanf("%d", &n) != 1 || n < 1 || n > MAX_PAGES) {
-        printf("Invalid number of pages.\n");
-        return 1;
-    }
-
-    printf("Enter page reference string: ");
-    for (int i = 0; i < n; i++) {
-        if (scanf("%d", &pages[i]) != 1 || pages[i] < 0) {
-            printf("Invalid page number.\n");
-            return 1;
-        }
-    }
-
-    printf("Enter number of frames: ");
-    if (scanf("%d", &frame_count) != 1 ||
-        frame_count < 1 || frame_count > MAX_FRAMES) {
-        printf("Invalid number of frames.\n");
-        return 1;
-    }
 
     for (int i = 0; i < frame_count; i++)
         frames[i] = -1;
@@ -106,5 +84,7 @@ int main(void)
     printf("Hit ratio: %.2f%%\n", (double)hits / n * 100);
     printf("Fault ratio: %.2f%%\n", (double)faults / n * 100);
 
-    return 0;
+    *hits_out = hits;
+    *faults_out = faults;
+
 }

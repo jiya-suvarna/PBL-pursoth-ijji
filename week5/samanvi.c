@@ -18,7 +18,7 @@
  * during integration with the other algorithms and GUI.
  */
 
-void fifo_simulate(const int pages[], int page_count, int frame_count)
+void fifo_simulate(const int pages[], int page_count, int frame_count, int *hits_out, int *faults_out)
 {
     int frames[MAX_FRAMES];
     int hits = 0;
@@ -124,6 +124,9 @@ void fifo_simulate(const int pages[], int page_count, int frame_count)
     printf("Page hit ratio        : %.2f%%\n", hit_ratio);
     printf("Page fault ratio      : %.2f%%\n", fault_ratio);
     printf("==================================\n");
+
+         *hits_out = hits;
+         *faults_out = faults;
 }
 
 /*

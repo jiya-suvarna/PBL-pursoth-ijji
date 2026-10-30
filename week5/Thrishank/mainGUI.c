@@ -1,4 +1,11 @@
 #include <gtk/gtk.h>
+#include <stdlib.h>
+#include <string.h>
+#define MAX_PAGES 100
+
+void fifo_simulate(const int pages[], int page_count, int frame_count, int *hits_out, int *faults_out);
+void lru_simulate(const int pages[], int n, int frameCount, int *hits_out, int *faults_out);
+void optimal_simulate(const int pages[], int n, int frame_count, int *hits_out, int *faults_out);
 
 static GtkWidget *page_entry;
 static GtkWidget *frame_entry;
@@ -10,7 +17,7 @@ static void on_run_clicked(GtkButton *button, gpointer user_data)
 {
     const char *page_text;
     const char *frame_text;
-    const char *algorithm;
+    char algorithm[20] ;
 
     page_text = gtk_editable_get_text(
         GTK_EDITABLE(page_entry)
@@ -20,7 +27,9 @@ static void on_run_clicked(GtkButton *button, gpointer user_data)
         GTK_EDITABLE(frame_entry)
     );
 
-    algorithm = gtk_string_list_get_string(
+    g_strlcpy(
+    algorithm,
+    gtk_string_list_get_string(
         GTK_STRING_LIST(
             gtk_drop_down_get_model(
                 GTK_DROP_DOWN(algorithm_dropdown)
@@ -29,7 +38,9 @@ static void on_run_clicked(GtkButton *button, gpointer user_data)
         gtk_drop_down_get_selected(
             GTK_DROP_DOWN(algorithm_dropdown)
         )
-    );
+    ),
+    sizeof(algorithm)
+);
 
     if (page_text[0] == '\0' || frame_text[0] == '\0') {
         gtk_label_set_text(
@@ -42,7 +53,7 @@ static void on_run_clicked(GtkButton *button, gpointer user_data)
     char *endptr;
     long frames = g_ascii_strtoll(frame_text, &endptr, 10);
 
-    if (endptr == frame_text || *endptr != '\0' || frames <= 0) {
+    if (endptr == frame_text || *endptr != '\0' || frames <= 0 || frames > 20) {
         gtk_label_set_text(
             GTK_LABEL(status_label),
             "Error: Enter a valid positive frame count."
@@ -58,10 +69,88 @@ static void on_run_clicked(GtkButton *button, gpointer user_data)
         return;
     }
 
+int pages[MAX_PAGES];
+int n = 0;
+char *copy;
+char *token;
+int hits, faults;
+
+copy = g_strdup(page_text);
+token = strtok(copy, " ,");
+
+while (token != NULL && n < MAX_PAGES)
+{
+    pages[n++] = atoi(token);
+    token = strtok(NULL, " ,");
+}
+
+g_free(copy); 
+
+if (n == 0)
+{
     gtk_label_set_text(
         GTK_LABEL(status_label),
-        "Inputs accepted! Simulation integration comes next."
+        "Error: Enter valid page references."
     );
+    return;
+}
+
+if (g_strcmp0(algorithm, "Compare All") == 0)
+{
+    int fifo_hits, fifo_faults;
+    int lru_hits, lru_faults;
+    int optimal_hits, optimal_faults;
+    char comparison[500];
+
+    fifo_simulate(pages, n, (int)frames, &fifo_hits, &fifo_faults);
+    lru_simulate(pages, n, (int)frames, &lru_hits, &lru_faults);
+    optimal_simulate(pages, n, (int)frames, &optimal_hits, &optimal_faults);
+
+    snprintf(
+        comparison,
+        sizeof(comparison),
+        "COMPARISON\n\n"
+        "FIFO: Hits %d | Faults %d | Hit Ratio %.2f%%\n"
+        "LRU: Hits %d | Faults %d | Hit Ratio %.2f%%\n"
+        "Optimal: Hits %d | Faults %d | Hit Ratio %.2f%%",
+        fifo_hits, fifo_faults, (double)fifo_hits / n * 100.0,
+        lru_hits, lru_faults, (double)lru_hits / n * 100.0,
+        optimal_hits, optimal_faults, (double)optimal_hits / n * 100.0
+    );
+
+    gtk_label_set_text(GTK_LABEL(status_label), comparison);
+    return;
+}
+
+if (g_strcmp0(algorithm, "FIFO") == 0)
+{
+    fifo_simulate(pages, n, (int)frames, &hits, &faults);
+}
+else if (g_strcmp0(algorithm, "LRU") == 0)
+{
+    lru_simulate(pages, n, (int)frames, &hits, &faults);
+}
+else if (g_strcmp0(algorithm, "Optimal") == 0)
+{
+    optimal_simulate(pages, n, (int)frames, &hits, &faults);
+}
+
+char result[200];
+
+snprintf(
+    result,
+    sizeof(result),
+    "%s completed: Hits = %d | Faults = %d | Hit Ratio = %.2f%% | Fault Ratio = %.2f%%",
+    algorithm,
+    hits,
+    faults,
+    (double)hits / n * 100.0,
+    (double)faults / n * 100.0
+);
+
+gtk_label_set_text(GTK_LABEL(status_label), result);
+
+
 
     g_print("Page references: %s\n", page_text);
     g_print("Number of frames: %ld\n", frames);
@@ -177,6 +266,7 @@ static void activate(GtkApplication *app, gpointer user_data)
     );
 
     gtk_box_append(GTK_BOX(card), algorithm_dropdown);
+
 
     run_button = gtk_button_new_with_label(
         "Run Simulation"

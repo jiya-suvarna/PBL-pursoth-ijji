@@ -4,40 +4,15 @@
 #define MAX_PAGES 100
 #define MAX_FRAMES 20
 
-int main(void)
+void lru_simulate(const int pages[], int n, int frameCount, int *hits_out, int *faults_out)
 {
-    int pages[MAX_PAGES];
     int frames[MAX_FRAMES];
     int lastUsed[MAX_FRAMES];
 
-    int n, frameCount;
     int hits = 0, faults = 0;
     int i, j, found, emptyFrame, lruIndex;
     int totalReferences;
 
-    // Step 1: Read the number of page references
-    printf("Enter the number of page references: ");
-    if (scanf("%d", &n) != 1 || n <= 0 || n > MAX_PAGES) {
-        printf("Invalid number of page references!\n");
-        return 1;
-    }
-
-    // Step 2: Read the page reference string
-    printf("Enter the page reference string:\n");
-    for (i = 0; i < n; i++) {
-        if (scanf("%d", &pages[i]) != 1 || pages[i] < 0) {
-            printf("Invalid page number!\n");
-            return 1;
-        }
-    }
-
-    // Step 3: Read the number of frames
-    printf("Enter the number of frames: ");
-    if (scanf("%d", &frameCount) != 1 ||
-        frameCount <= 0 || frameCount > MAX_FRAMES) {
-        printf("Invalid number of frames!\n");
-        return 1;
-    }
 
     // Step 4: Initialize all frames as empty
     for (i = 0; i < frameCount; i++) {
@@ -137,5 +112,6 @@ int main(void)
     printf("Page fault ratio      : %.2f%%\n",
            (double)faults / totalReferences * 100.0);
 
-    return 0;
+    *hits_out = hits;
+    *faults_out = faults;
 }
