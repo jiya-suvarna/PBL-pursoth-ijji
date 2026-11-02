@@ -1,15 +1,76 @@
-
 #include <stdio.h>
 #include <stdlib.h>
-#include "../ipc.h"
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
 
 #define MAX_INSTRUCTIONS 100
 #define MAX_LENGTH 100
 
+#define CORE_IP "127.0.0.1"
+#define CORE_PORT 8080
+
 char instructions[MAX_INSTRUCTIONS][MAX_LENGTH];
 int instruction_count = 0;
 
-void show_menu(void) {
+/* Connect to Core and send a command using TCP sockets */
+int send_command_to_core(const char *command)
+{
+    int sockfd;
+    struct sockaddr_in server_addr;
+
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (sockfd == -1) {
+        perror("Socket creation failed");
+        return 0;
+    }
+
+    memset(&server_addr, 0, sizeof(server_addr));
+
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(CORE_PORT);
+
+    if (inet_pton(AF_INET, CORE_IP,
+                  &server_addr.sin_addr) != 1) {
+        printf("Invalid Core IP address.\n");
+        close(sockfd);
+        return 0;
+    }
+
+    if (connect(sockfd, (struct sockaddr *)&server_addr,
+                sizeof(server_addr)) == -1) {
+        perror("Unable to connect to Core");
+        close(sockfd);
+        return 0;
+    }
+
+    size_t length = strlen(command);
+    size_t sent = 0;
+
+    while (sent < length) {
+        ssize_t result = send(sockfd, command + sent,
+                              length - sent, 0);
+
+        if (result <= 0) {
+            perror("Failed to send command");
+            close(sockfd);
+            return 0;
+        }
+
+        sent += (size_t)result;
+    }
+
+    printf("Command sent to Core through socket: %s\n",
+           command);
+
+    close(sockfd);
+    return 1;
+}
+
+void show_menu(void)
+{
     printf("\n========================================\n");
     printf("          CPU SIMULATOR - UI\n");
     printf("========================================\n");
@@ -25,7 +86,8 @@ void show_menu(void) {
     printf("Enter your choice: ");
 }
 
-void load_program(void) {
+void load_program(void)
+{
     char filename[256];
 
     printf("Enter program filename: ");
@@ -56,8 +118,8 @@ void load_program(void) {
            instruction_count);
 }
 
-
-void show_help(void) {
+void show_help(void)
+{
     printf("\n========== CPU SIMULATOR HELP ==========\n");
     printf("1. Load Program: Read instructions from a file.\n");
     printf("2. Run Program: Request full program execution.\n");
@@ -70,7 +132,8 @@ void show_help(void) {
     printf("=======================================\n");
 }
 
-void show_registers(void) {
+void show_registers(void)
+{
     printf("\n========== CPU REGISTERS ==========\n");
     printf("R0 = 0\n");
     printf("R1 = 0\n");
@@ -80,7 +143,8 @@ void show_registers(void) {
     printf("===================================\n");
 }
 
-void show_memory(void) {
+void show_memory(void)
+{
     printf("\n========== CPU MEMORY ==========\n");
     printf("Address 0: 10\n");
     printf("Address 1: 20\n");
@@ -89,8 +153,8 @@ void show_memory(void) {
     printf("================================\n");
 }
 
-
-void show_execution_status(void) {
+void show_execution_status(void)
+{
     printf("\n======= EXECUTION STATUS =======\n");
     printf("Program loaded: %s\n",
            instruction_count > 0 ? "Yes" : "No");
@@ -99,7 +163,8 @@ void show_execution_status(void) {
     printf("================================\n");
 }
 
-int main(void) {
+int main(void)
+{
     int choice;
 
     while (1) {
@@ -120,48 +185,39 @@ int main(void) {
             case 1:
                 load_program();
                 break;
+
             case 2:
-                mqd_t queue;
-                IPCMessage message;
-
-                queue = ipc_open_queue(UI_TO_CORE_QUEUE, O_WRONLY, 1);
-
-                if (queue == (mqd_t)-1)
-                {
-                    perror("Unable to connect to Core");
-                    break;
-                }
-
-                message.type = IPC_MSG_COMMAND;
-                message.command = IPC_CMD_RUN;
-                message.status = 0;
-                snprintf(message.text, IPC_TEXT_SIZE, "Run program requested");
-
-                if (ipc_send(queue, &message))
-                    printf("RUN command sent to Core.\n");
-                else
+                if (send_command_to_core("RUN\n")) {
+                    printf("RUN command sent successfully.\n");
+                } else {
                     printf("Failed to send RUN command.\n");
-
-                mq_close(queue);
+                }
                 break;
+
             case 3:
                 printf("Single-step execution selected.\n");
                 break;
+
             case 4:
                 show_registers();
                 break;
+
             case 5:
                 show_memory();
                 break;
+
             case 6:
                 show_execution_status();
                 break;
+
             case 7:
                 show_help();
                 break;
+
             case 0:
                 printf("Exiting CPU Simulator UI.\n");
                 return EXIT_SUCCESS;
+
             default:
                 printf("Invalid choice. Try again.\n");
         }
