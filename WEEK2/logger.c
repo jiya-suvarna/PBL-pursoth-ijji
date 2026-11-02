@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,10 +8,10 @@
 #include <time.h>
 #include <errno.h>
 
-#include "ipc.h"   // IPC definitions
 #define FIFO_NAME "/tmp/simulator_log_fifo"
 #define BUFFER_SIZE 1024
 
+// Function to generate timestamp
 void get_timestamp(char *buffer, size_t size)
 {
     time_t now;
@@ -22,6 +23,7 @@ void get_timestamp(char *buffer, size_t size)
     strftime(buffer, size, "%Y-%m-%d %H:%M:%S", time_info);
 }
 
+// Function to write messages into log files
 void write_log(const char *filename,
                const char *level,
                const char *message)
@@ -53,27 +55,12 @@ int main()
 {
     int fifo_fd;
     char buffer[BUFFER_SIZE];
-    mqd_t core_queue;
-    IPCMessage ipc_message;
 
     printf("=====================================\n");
     printf("       LOGGER PROCESS STARTED        \n");
     printf("=====================================\n");
 
-    core_queue = ipc_open_queue(CORE_TO_LOGGER_QUEUE, O_RDONLY, 1);
-
-    if (core_queue == (mqd_t)-1)
-    {
-        perror("Error opening Core to Logger queue");
-        return 1;
-    }
-
-    printf("Core to Logger IPC queue connected!\n");
-
-
-    /*
-     * Create FIFO if it does not already exist
-     */
+    // Create named pipe
     if (mkfifo(FIFO_NAME, 0666) == -1)
     {
         if (errno != EEXIST)
@@ -83,12 +70,11 @@ int main()
         }
     }
 
+    printf("Named Pipe created successfully!\n");
     printf("Waiting for messages from Core...\n");
     printf("FIFO: %s\n\n", FIFO_NAME);
 
-    /*
-     * Open FIFO for reading
-     */
+    // Open FIFO for reading
     fifo_fd = open(FIFO_NAME, O_RDONLY);
 
     if (fifo_fd == -1)
@@ -97,16 +83,9 @@ int main()
         return 1;
     }
 
-printf("FIFO connected successfully!\n");
+    printf("FIFO connected successfully!\n");
 
-if (ipc_receive(core_queue, &ipc_message))
-{
-    printf("Message received from Core: %s\n", ipc_message.text);
-}
-
-    /*
-     * Continuously receive messages
-     */
+    // Continuously receive messages
     while (1)
     {
         ssize_t bytes_read;
@@ -119,9 +98,7 @@ if (ipc_receive(core_queue, &ipc_message))
         {
             buffer[bytes_read] = '\0';
 
-            /*
-             * TERMINATE message stops Logger
-             */
+            // Termination message
             if (strncmp(buffer, "TERMINATE", 9) == 0)
             {
                 write_log(
@@ -134,9 +111,7 @@ if (ipc_receive(core_queue, &ipc_message))
                 break;
             }
 
-            /*
-             * ERROR messages go to error.log
-             */
+            // Error messages
             if (strncmp(buffer, "ERROR|", 6) == 0)
             {
                 write_log(
@@ -148,23 +123,19 @@ if (ipc_receive(core_queue, &ipc_message))
                 printf("[ERROR] %s\n", buffer + 6);
             }
 
-            /*
-             * INFO messages go to execution.log
-             */
+            // Information messages
             else if (strncmp(buffer, "INFO:", 5) == 0)
             {
                 write_log(
                     "execution.log",
                     "INFO",
-                    buffer + 6
+                    buffer + 5
                 );
 
-                printf("[INFO] %s\n", buffer + 6);
+                printf("[INFO] %s\n", buffer + 5);
             }
 
-            /*
-             * Unknown messages are treated as errors
-             */
+            // Unknown messages
             else
             {
                 write_log(
@@ -179,11 +150,8 @@ if (ipc_receive(core_queue, &ipc_message))
 
         else if (bytes_read == 0)
         {
-            /*
-             * Writer closed the FIFO.
-             * Reopen it so Logger can continue waiting.
-             */
-
+            // Writer closed the FIFO.
+            // Reopen it to wait for another writer.
             close(fifo_fd);
 
             fifo_fd = open(FIFO_NAME, O_RDONLY);
@@ -197,6 +165,9 @@ if (ipc_receive(core_queue, &ipc_message))
 
         else
         {
+            if (errno == EINTR)
+                continue;
+
             perror("Error reading FIFO");
             break;
         }
@@ -204,28 +175,10 @@ if (ipc_receive(core_queue, &ipc_message))
 
     close(fifo_fd);
 
-    /*
-     * Remove FIFO after Logger finishes
-     */
+    // Remove named pipe
     unlink(FIFO_NAME);
-while (1)
-{
-    if (ipc_receive(core_queue, &ipc_message))
-    {
-        printf("Message received from Core: %s\n", ipc_message.text);
 
-        write_log("execution.log", "INFO", ipc_message.text);
-printf("Log saved successfully.\n");
-            printf("Log saved successfully.\n");
-    }
-    else
-    {
-        printf("Failed to receive message from Core.\n");
-        break;
-    }
-}
     printf("\nLogger process stopped successfully.\n");
 
     return 0;
 }
-
