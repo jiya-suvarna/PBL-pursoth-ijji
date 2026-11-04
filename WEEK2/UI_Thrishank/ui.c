@@ -69,6 +69,118 @@ int send_command_to_core(const char *command)
     return 1;
 }
 
+void request_registers_from_core(void)
+{
+    int sockfd;
+    struct sockaddr_in server_addr;
+    char response[512] = {0};
+
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (sockfd == -1) {
+        perror("Socket creation failed");
+        return;
+    }
+
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(CORE_PORT);
+    inet_pton(AF_INET, CORE_IP, &server_addr.sin_addr);
+
+    if (connect(sockfd, (struct sockaddr *)&server_addr,
+                sizeof(server_addr)) == -1) {
+        perror("Connection failed");
+        close(sockfd);
+        return;
+    }
+
+    send(sockfd, "VIEW_REGISTERS\n", 15, 0);
+
+    int received = recv(sockfd, response, sizeof(response) - 1, 0);
+
+    if (received > 0) {
+        response[received] = '\0';
+        printf("\n========== CPU REGISTERS ==========\n%s", response);
+    }
+
+    close(sockfd);
+}
+
+
+void request_memory_from_core(void)
+{
+    int sockfd;
+    struct sockaddr_in server_addr;
+    char response[512] = {0};
+
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (sockfd == -1) {
+        perror("Socket creation failed");
+        return;
+    }
+
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(CORE_PORT);
+    inet_pton(AF_INET, CORE_IP, &server_addr.sin_addr);
+
+    if (connect(sockfd, (struct sockaddr *)&server_addr,
+                sizeof(server_addr)) == -1) {
+        perror("Connection failed");
+        close(sockfd);
+        return;
+    }
+
+    send(sockfd, "VIEW_MEMORY\n", 12, 0);
+
+    int received = recv(sockfd, response, sizeof(response) - 1, 0);
+
+    if (received > 0) {
+        response[received] = '\0';
+        printf("\n========== MEMORY CONTENTS ==========\n%s", response);
+    }
+
+    close(sockfd);
+}
+
+void request_status_from_core(void)
+{
+    int sockfd;
+    struct sockaddr_in server_addr;
+    char response[512] = {0};
+
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (sockfd == -1) {
+        perror("Socket creation failed");
+        return;
+    }
+
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(CORE_PORT);
+    inet_pton(AF_INET, CORE_IP, &server_addr.sin_addr);
+
+    if (connect(sockfd, (struct sockaddr *)&server_addr,
+                sizeof(server_addr)) == -1) {
+        perror("Connection failed");
+        close(sockfd);
+        return;
+    }
+
+    send(sockfd, "VIEW_STATUS\n", 12, 0);
+
+    int received = recv(sockfd, response, sizeof(response) - 1, 0);
+
+    if (received > 0) {
+        response[received] = '\0';
+        printf("\n========== EXECUTION STATUS ==========\n%s", response);
+    }
+
+    close(sockfd);
+}
+
 void show_menu(void)
 {
     printf("\n========================================\n");
@@ -182,9 +294,35 @@ int main(void)
         }
 
         switch (choice) {
+
             case 1:
-                load_program();
-                break;
+    load_program();
+
+    if (instruction_count == 0) {
+        printf("No instructions to send.\n");
+        break;
+    }
+
+    if (!send_command_to_core("LOAD\n")) {
+        printf("Failed to send LOAD command.\n");
+        break;
+    }
+
+    for (int i = 0; i < instruction_count; i++) {
+        char message[MAX_LENGTH + 20];
+
+        snprintf(message, sizeof(message),
+                 "INSTRUCTION:%s", instructions[i]);
+
+        if (!send_command_to_core(message)) {
+            printf("Failed to send instruction %d.\n", i + 1);
+            break;
+        }
+    }
+
+    send_command_to_core("ENDLOAD\n");
+    printf("Program sent to Core.\n");
+    break;
 
             case 2:
                 if (send_command_to_core("RUN\n")) {
@@ -195,19 +333,23 @@ int main(void)
                 break;
 
             case 3:
-                printf("Single-step execution selected.\n");
-                break;
+    if (send_command_to_core("STEP\n")) {
+        printf("Single-step command sent successfully.\n");
+    } else {
+      printf("Failed to send single-step command.\n");
+    }
+    break;
 
             case 4:
-                show_registers();
+                request_registers_from_core();
                 break;
 
             case 5:
-                show_memory();
+                request_memory_from_core();
                 break;
 
             case 6:
-                show_execution_status();
+                request_status_from_core();
                 break;
 
             case 7:

@@ -8,9 +8,13 @@
 #include <netinet/in.h>
 #include "ipc.h"
 
+#define FIFO_NAME "/tmp/simulator_log_fifo"
+
 #define MAX_MEMORY 1024
 #define MAX_STACK 100
 #define MAX_QUEUE 100
+
+int logger_fd = -1;
 
 // ==================== CPU MODULE ====================
 
@@ -18,18 +22,37 @@ int cpu_running = 0;
 int cpu_loaded = 0;
 int instructions_executed = 0;
 
+#define MAX_INSTRUCTIONS 100
+
+char program_instructions[MAX_INSTRUCTIONS][128];
+int program_count = 0;
+
+int registers[4] = {0};
+int program_counter = 0;
+
+int simulated_memory[MAX_MEMORY] = {0};
+
 void load_cpu(void)
 {
-    if (cpu_loaded) {
-        printf("\nProgram is already loaded.\n");
+    if (program_count == 0) {
+        printf("\nNo instructions received from UI.\n");
         return;
     }
 
     cpu_loaded = 1;
+    cpu_running = 0;
     instructions_executed = 0;
+    program_counter = 0;
+
+    for (int i = 0; i < 4; i++) {
+        registers[i] = 0;
+    }
 
     printf("\nProgram loaded into CPU successfully.\n");
+    printf("Total instructions: %d\n", program_count);
 }
+
+void execute_one_instruction(void);
 
 void execute_cpu(void)
 {
@@ -44,18 +67,60 @@ void execute_cpu(void)
     }
 
     cpu_running = 1;
-
     printf("\nCPU execution started.\n");
 
-    for (int i = 1; i <= 5; i++) {
-        instructions_executed++;
-        printf("Executing instruction %d\n",
-               instructions_executed);
+    while (program_counter < program_count) {
+        execute_one_instruction();
     }
 
     cpu_running = 0;
+    printf("\nCPU execution completed.\n");
+}
 
-    printf("CPU execution completed.\n");
+void execute_one_instruction(void)
+{
+    if (!cpu_loaded) {
+        printf("\nPlease load a program first.\n");
+        return;
+    }
+
+    if (program_counter >= program_count) {
+        printf("\nAll instructions have been executed.\n");
+        return;
+    }
+
+    char *instruction = program_instructions[program_counter];
+    int reg1, reg2, value, address;
+
+    printf("\nExecuting: %s\n", instruction);
+
+    if (sscanf(instruction, "LOAD R%d, %d", &reg1, &value) == 2) {
+        if (reg1 >= 0 && reg1 < 4) {
+            registers[reg1] = value;
+            printf("R%d = %d\n", reg1, value);
+        }
+    }
+    else if (sscanf(instruction, "ADD R%d, R%d", &reg1, &reg2) == 2) {
+        if (reg1 >= 0 && reg1 < 4 &&
+            reg2 >= 0 && reg2 < 4) {
+            registers[reg1] += registers[reg2];
+            printf("R%d = %d\n", reg1, registers[reg1]);
+        }
+    }
+    else if (sscanf(instruction, "STORE R%d, %d", &reg1, &address) == 2) {
+        if (reg1 >= 0 && reg1 < 4 &&
+            address >= 0 && address < MAX_MEMORY) {
+            simulated_memory[address] = registers[reg1];
+            printf("Memory[%d] = %d\n",
+                   address, simulated_memory[address]);
+        }
+    }
+    else {
+        printf("Invalid instruction: %s\n", instruction);
+    }
+
+    program_counter++;
+    instructions_executed++;
 }
 
 void stop_cpu(void)
@@ -450,6 +515,33 @@ void queue_menu(void)
     } while (choice != 0);
 }
 
+/* ==================== LOGGER FIFO COMMUNICATION ==================== */
+
+void send_log_to_logger(const char *message)
+{
+    if (logger_fd == -1 || message == NULL)
+        return;
+
+    char buffer[256];
+
+    snprintf(buffer, sizeof(buffer), "INFO:%s", message);
+
+    write(logger_fd, buffer, strlen(buffer));
+}
+
+void connect_to_logger(void)
+{
+    logger_fd = open(FIFO_NAME, O_WRONLY);
+
+    if (logger_fd == -1)
+    {
+        perror("Failed to connect to Logger");
+        return;
+    }
+
+    printf("Core connected to Logger through FIFO.\n");
+}
+
 /* ==================== MESSAGE QUEUE WORKER ==================== */
 
 void process_core_message(const IPCMessage *message)
@@ -461,13 +553,68 @@ void process_core_message(const IPCMessage *message)
 
     switch (message->command)
     {
-        case IPC_CMD_LOAD:
-            load_cpu();
+
+                case IPC_CMD_INSTRUCTION:
+            if (program_count < MAX_INSTRUCTIONS) {
+                snprintf(program_instructions[program_count],
+                         sizeof(program_instructions[program_count]),
+                         "%s", message->text);
+                program_count++;
+                printf("Instruction received: %s\n",
+                       message->text);
+            }
             break;
+
+        case IPC_CMD_ENDLOAD:
+    printf("All %d instructions received from UI.\n",
+           program_count);
+    load_cpu();
+    break;
+
+    case IPC_CMD_VIEW_REGISTERS:
+    printf("\n========== CPU REGISTERS ==========\n");
+    for (int i = 0; i < 4; i++) {
+        printf("R%d = %d\n", i, registers[i]);
+    }
+    printf("Program Counter (PC) = %d\n", program_counter);
+    printf("===================================\n");
+    break;
+
+    case IPC_CMD_VIEW_MEMORY:
+    printf("\n========== MEMORY CONTENTS ==========\n");
+
+    for (int i = 0; i < 10; i++) {
+        printf("Memory[%d] = %d\n", i, simulated_memory[i]);
+    }
+
+    printf("=====================================\n");
+    break;
+
+    case IPC_CMD_VIEW_STATUS:
+    printf("\n========== EXECUTION STATUS ==========\n");
+    printf("CPU Loaded: %s\n", cpu_loaded ? "Yes" : "No");
+    printf("CPU Running: %s\n", cpu_running ? "Yes" : "No");
+    printf("Instructions Executed: %d\n", instructions_executed);
+    printf("Total Instructions: %d\n", program_count);
+    printf("Program Counter (PC): %d\n", program_counter);
+    printf("======================================\n");
+    break;
+         
+        case IPC_CMD_LOAD:
+    program_count = 0;
+    cpu_loaded = 0;
+    program_counter = 0;
+    instructions_executed = 0;
+    printf("\nReceiving new program from UI...\n");
+    break;
 
         case IPC_CMD_RUN:
             load_cpu();
             execute_cpu();
+            break;
+        
+        case IPC_CMD_STEP:
+            execute_one_instruction();
             break;
 
         case IPC_CMD_STOP:
@@ -486,6 +633,8 @@ void process_core_message(const IPCMessage *message)
             printf("Unknown Message Queue command.\n");
             break;
     }
+
+        send_log_to_logger("Core processed a command");
 }
 
 /* ==================== CORE SOCKET SERVER ==================== */
@@ -571,27 +720,57 @@ if (core_queue == (mqd_t)-1)
 
             message.type = IPC_MSG_COMMAND;
 
-            if (strncmp(buffer, "RUN", 3) == 0)
-            {
-                message.command = IPC_CMD_RUN;
-            }
-            else if (strncmp(buffer, "STOP", 4) == 0)
-            {
-                message.command = IPC_CMD_STOP;
-            }
-            else if (strncmp(buffer, "RESET", 5) == 0)
-            {
-                message.command = IPC_CMD_RESET;
-            }
-            else if (strncmp(buffer, "EXIT", 4) == 0)
-            {
-                message.command = IPC_CMD_EXIT;
-            }
-            else
-            {
-                printf("Unknown command received from UI.\n");
-                message.command = 0;
-            }
+if (strncmp(buffer, "LOAD", 4) == 0)
+{
+    message.command = IPC_CMD_LOAD;
+}
+else if (strncmp(buffer, "RUN", 3) == 0)
+{
+    message.command = IPC_CMD_RUN;
+}
+else if (strncmp(buffer, "STOP", 4) == 0)
+{
+    message.command = IPC_CMD_STOP;
+}
+else if (strncmp(buffer, "RESET", 5) == 0)
+{
+    message.command = IPC_CMD_RESET;
+}
+else if (strncmp(buffer, "STEP", 4) == 0) 
+{
+    message.command = IPC_CMD_STEP;
+}
+else if (strncmp(buffer, "INSTRUCTION:", 12) == 0)
+{
+    message.command = IPC_CMD_INSTRUCTION;
+    snprintf(message.text, sizeof(message.text),
+             "%s", buffer + 12);
+}
+else if (strncmp(buffer, "ENDLOAD", 7) == 0)
+{
+    message.command = IPC_CMD_ENDLOAD;
+}
+else if (strncmp(buffer, "VIEW_REGISTERS", 14) == 0)
+{
+    message.command = IPC_CMD_VIEW_REGISTERS;
+}
+else if (strncmp(buffer, "VIEW_MEMORY", 11) == 0)
+{
+    message.command = IPC_CMD_VIEW_MEMORY;
+}
+else if (strncmp(buffer, "VIEW_STATUS", 11) == 0)
+{
+    message.command = IPC_CMD_VIEW_STATUS;
+}
+else if (strncmp(buffer, "EXIT", 4) == 0)
+{
+    message.command = IPC_CMD_EXIT;
+}
+else
+{
+    printf("Unknown command received from UI.\n");
+    message.command = 0;
+}
 
             if (message.command != 0)
             {
@@ -602,6 +781,46 @@ if (core_queue == (mqd_t)-1)
                     if (ipc_receive(core_queue, &received_message))
                     {
                         process_core_message(&received_message);
+
+                      if (received_message.command == IPC_CMD_VIEW_REGISTERS) {
+    char response[512];
+    int length = snprintf(response, sizeof(response),
+        "R0 = %d\nR1 = %d\nR2 = %d\nR3 = %d\nProgram Counter (PC) = %d\n",
+        registers[0], registers[1], registers[2],
+        registers[3], program_counter);
+
+    send(client_fd, response, length, 0);
+}  
+if (received_message.command == IPC_CMD_VIEW_MEMORY) {
+    char response[512];
+    int length = 0;
+
+    for (int i = 0; i < 10; i++) {
+        length += snprintf(response + length,
+                           sizeof(response) - length,
+                           "Memory[%d] = %d\n",
+                           i, simulated_memory[i]);
+    }
+
+    send(client_fd, response, length, 0);
+}
+if (received_message.command == IPC_CMD_VIEW_STATUS) {
+    char response[512];
+
+    int length = snprintf(response, sizeof(response),
+        "CPU Loaded: %s\n"
+        "CPU Running: %s\n"
+        "Instructions Executed: %d\n"
+        "Total Instructions: %d\n"
+        "Program Counter (PC): %d\n",
+        cpu_loaded ? "Yes" : "No",
+        cpu_running ? "Yes" : "No",
+        instructions_executed,
+        program_count,
+        program_counter);
+
+    send(client_fd, response, length, 0);
+}
                     }
                     else
                     {
@@ -638,6 +857,8 @@ int main(void)
     printf("\n====================================\n");
     printf("       CORE PROCESS STARTED\n");
     printf("====================================\n");
+
+    connect_to_logger();
 
     start_core_socket_server();
 
