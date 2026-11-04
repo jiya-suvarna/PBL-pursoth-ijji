@@ -2,183 +2,171 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
+#include <fcntl.h>
+#include <mqueue.h>
+#include "ipc.h"
 
 #define MAX_INSTRUCTIONS 100
 #define MAX_LENGTH 100
 
-#define CORE_IP "127.0.0.1"
-#define CORE_PORT 8080
-
 char instructions[MAX_INSTRUCTIONS][MAX_LENGTH];
 int instruction_count = 0;
 
-/* Connect to Core and send a command using TCP sockets */
+
+/* ================= POSIX MESSAGE QUEUE COMMUNICATION ================= */
+
+static mqd_t ui_to_core_queue = (mqd_t)-1;
+static mqd_t core_to_ui_queue = (mqd_t)-1;
+
+char core_response[IPC_TEXT_SIZE];
+
+int connect_to_core(void)
+{
+    ui_to_core_queue = ipc_open_queue(
+        UI_TO_CORE_QUEUE, O_WRONLY, 0
+    );
+
+    if (ui_to_core_queue == (mqd_t)-1)
+    {
+        perror("Unable to open UI-to-Core queue");
+        return 0;
+    }
+
+    core_to_ui_queue = ipc_open_queue(
+        CORE_TO_UI_QUEUE, O_RDONLY, 0
+    );
+
+    if (core_to_ui_queue == (mqd_t)-1)
+    {
+        perror("Unable to open Core-to-UI queue");
+        mq_close(ui_to_core_queue);
+        ui_to_core_queue = (mqd_t)-1;
+        return 0;
+    }
+
+    printf("UI connected to Core using POSIX Message Queues.\n");
+    return 1;
+}
+
 int send_command_to_core(const char *command)
 {
-    int sockfd;
-    struct sockaddr_in server_addr;
+    IPCMessage message;
+    IPCMessage response;
 
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    memset(&message, 0, sizeof(message));
+    memset(&response, 0, sizeof(response));
 
-    if (sockfd == -1) {
-        perror("Socket creation failed");
+    if (strncmp(command, "LOAD", 4) == 0)
+        message.command = IPC_CMD_LOAD;
+    else if (strncmp(command, "RUN", 3) == 0)
+        message.command = IPC_CMD_RUN;
+    else if (strncmp(command, "STEP", 4) == 0)
+        message.command = IPC_CMD_STEP;
+    else if (strncmp(command, "STOP", 4) == 0)
+        message.command = IPC_CMD_STOP;
+    else if (strncmp(command, "RESET", 5) == 0)
+        message.command = IPC_CMD_RESET;
+    else if (strncmp(command, "EXIT", 4) == 0)
+        message.command = IPC_CMD_EXIT;
+    else if (strncmp(command, "VIEW_REGISTERS", 14) == 0)
+        message.command = IPC_CMD_VIEW_REGISTERS;
+    else if (strncmp(command, "VIEW_MEMORY", 11) == 0)
+        message.command = IPC_CMD_VIEW_MEMORY;
+    else if (strncmp(command, "VIEW_STATUS", 11) == 0)
+        message.command = IPC_CMD_VIEW_STATUS;
+    else if (strncmp(command, "INSTRUCTION:", 12) == 0)
+    {
+        message.command = IPC_CMD_INSTRUCTION;
+        snprintf(message.text, sizeof(message.text),
+                 "%.511s", command + 12);
+    }
+        else if (strncmp(command, "ENDLOAD", 7) == 0)
+        message.command = IPC_CMD_ENDLOAD;
+
+    else if (strncmp(command, "ALLOCATE_MEMORY:", 16) == 0)
+    {
+        message.command = IPC_CMD_ALLOCATE_MEMORY;
+        snprintf(message.text, sizeof(message.text), "%.511s", command + 16);
+    }
+    else if (strncmp(command, "RELEASE_MEMORY:", 15) == 0)
+    {
+        message.command = IPC_CMD_RELEASE_MEMORY;
+        snprintf(message.text, sizeof(message.text), "%.511s", command + 15);
+    }
+    else if (strcmp(command, "MEMORY_STATUS") == 0)
+        message.command = IPC_CMD_MEMORY_STATUS;
+
+    else if (strncmp(command, "STACK_PUSH:", 11) == 0)
+    {
+        message.command = IPC_CMD_STACK_PUSH;
+        snprintf(message.text, sizeof(message.text), "%.511s", command + 11);
+    }
+    else if (strcmp(command, "STACK_POP") == 0)
+        message.command = IPC_CMD_STACK_POP;
+    else if (strcmp(command, "STACK_DISPLAY") == 0)
+        message.command = IPC_CMD_STACK_DISPLAY;
+
+    else if (strncmp(command, "QUEUE_ENQUEUE:", 14) == 0)
+    {
+        message.command = IPC_CMD_QUEUE_ENQUEUE;
+        snprintf(message.text, sizeof(message.text), "%.511s", command + 14);
+    }
+    else if (strcmp(command, "QUEUE_DEQUEUE") == 0)
+        message.command = IPC_CMD_QUEUE_DEQUEUE;
+    else if (strcmp(command, "QUEUE_DISPLAY") == 0)
+        message.command = IPC_CMD_QUEUE_DISPLAY;
+
+    else
+    {
+        printf("Unknown command.\n");
         return 0;
     }
 
-    memset(&server_addr, 0, sizeof(server_addr));
+    message.type = IPC_MSG_COMMAND;
 
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(CORE_PORT);
-
-    if (inet_pton(AF_INET, CORE_IP,
-                  &server_addr.sin_addr) != 1) {
-        printf("Invalid Core IP address.\n");
-        close(sockfd);
+    if (!ipc_send(ui_to_core_queue, &message))
+    {
+        perror("Failed to send message to Core");
         return 0;
     }
 
-    if (connect(sockfd, (struct sockaddr *)&server_addr,
-                sizeof(server_addr)) == -1) {
-        perror("Unable to connect to Core");
-        close(sockfd);
+    if (!ipc_receive(core_to_ui_queue, &response))
+    {
+        perror("Failed to receive response from Core");
         return 0;
     }
 
-    size_t length = strlen(command);
-    size_t sent = 0;
-
-    while (sent < length) {
-        ssize_t result = send(sockfd, command + sent,
-                              length - sent, 0);
-
-        if (result <= 0) {
-            perror("Failed to send command");
-            close(sockfd);
-            return 0;
-        }
-
-        sent += (size_t)result;
+    if (response.type != IPC_MSG_RESPONSE)
+    {
+        printf("Invalid response received from Core.\n");
+        return 0;
     }
 
-    printf("Command sent to Core through socket: %s\n",
-           command);
+    snprintf(core_response, sizeof(core_response),
+             "%s", response.text);
 
-    close(sockfd);
-    return 1;
+    return response.status;
 }
 
 void request_registers_from_core(void)
 {
-    int sockfd;
-    struct sockaddr_in server_addr;
-    char response[512] = {0};
-
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-
-    if (sockfd == -1) {
-        perror("Socket creation failed");
-        return;
-    }
-
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(CORE_PORT);
-    inet_pton(AF_INET, CORE_IP, &server_addr.sin_addr);
-
-    if (connect(sockfd, (struct sockaddr *)&server_addr,
-                sizeof(server_addr)) == -1) {
-        perror("Connection failed");
-        close(sockfd);
-        return;
-    }
-
-    send(sockfd, "VIEW_REGISTERS\n", 15, 0);
-
-    int received = recv(sockfd, response, sizeof(response) - 1, 0);
-
-    if (received > 0) {
-        response[received] = '\0';
-        printf("\n========== CPU REGISTERS ==========\n%s", response);
-    }
-
-    close(sockfd);
+    if (send_command_to_core("VIEW_REGISTERS"))
+        printf("\n========== CPU REGISTERS ==========\n%s",
+               core_response);
 }
-
 
 void request_memory_from_core(void)
 {
-    int sockfd;
-    struct sockaddr_in server_addr;
-    char response[512] = {0};
-
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-
-    if (sockfd == -1) {
-        perror("Socket creation failed");
-        return;
-    }
-
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(CORE_PORT);
-    inet_pton(AF_INET, CORE_IP, &server_addr.sin_addr);
-
-    if (connect(sockfd, (struct sockaddr *)&server_addr,
-                sizeof(server_addr)) == -1) {
-        perror("Connection failed");
-        close(sockfd);
-        return;
-    }
-
-    send(sockfd, "VIEW_MEMORY\n", 12, 0);
-
-    int received = recv(sockfd, response, sizeof(response) - 1, 0);
-
-    if (received > 0) {
-        response[received] = '\0';
-        printf("\n========== MEMORY CONTENTS ==========\n%s", response);
-    }
-
-    close(sockfd);
+    if (send_command_to_core("VIEW_MEMORY"))
+        printf("\n========== MEMORY CONTENTS ==========\n%s",
+               core_response);
 }
 
 void request_status_from_core(void)
 {
-    int sockfd;
-    struct sockaddr_in server_addr;
-    char response[512] = {0};
-
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-
-    if (sockfd == -1) {
-        perror("Socket creation failed");
-        return;
-    }
-
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(CORE_PORT);
-    inet_pton(AF_INET, CORE_IP, &server_addr.sin_addr);
-
-    if (connect(sockfd, (struct sockaddr *)&server_addr,
-                sizeof(server_addr)) == -1) {
-        perror("Connection failed");
-        close(sockfd);
-        return;
-    }
-
-    send(sockfd, "VIEW_STATUS\n", 12, 0);
-
-    int received = recv(sockfd, response, sizeof(response) - 1, 0);
-
-    if (received > 0) {
-        response[received] = '\0';
-        printf("\n========== EXECUTION STATUS ==========\n%s", response);
-    }
-
-    close(sockfd);
+    if (send_command_to_core("VIEW_STATUS"))
+        printf("\n========== EXECUTION STATUS ==========\n%s",
+               core_response);
 }
 
 void show_menu(void)
@@ -193,6 +181,8 @@ void show_menu(void)
     printf("5. View Memory\n");
     printf("6. View Execution Status\n");
     printf("7. Help\n");
+    printf("8. Reset CPU\n");
+    printf("9. Memory / Stack / Queue\n");
     printf("0. Exit\n");
     printf("----------------------------------------\n");
     printf("Enter your choice: ");
@@ -240,6 +230,7 @@ void show_help(void)
     printf("5. View Memory: Display memory contents.\n");
     printf("6. Execution Status: Display CPU status.\n");
     printf("7. Help: Display this help message.\n");
+    printf("8. Reset CPU: Clear registers, memory and program.\n");
     printf("0. Exit: Close the simulator UI.\n");
     printf("=======================================\n");
 }
@@ -275,8 +266,74 @@ void show_execution_status(void)
     printf("================================\n");
 }
 
+void memory_stack_queue_menu(void)
+{
+    int choice, value;
+    char command[100];
+
+    do {
+        printf("\n===== MEMORY / STACK / QUEUE =====\n");
+        printf("1. Allocate Memory\n");
+        printf("2. Release Memory\n");
+        printf("3. Memory Status\n");
+        printf("4. Push\n");
+        printf("5. Pop\n");
+        printf("6. Display Stack\n");
+        printf("7. Enqueue\n");
+        printf("8. Dequeue\n");
+        printf("9. Display Queue\n");
+        printf("0. Back\n");
+        printf("Enter choice: ");
+
+        if (scanf("%d", &choice) != 1)
+            return;
+
+        command[0] = '\0';
+
+        switch (choice) {
+            case 1:
+            case 2:
+            case 4:
+            case 7:
+                printf("Enter value: ");
+                if (scanf("%d", &value) != 1)
+                    return;
+
+                if (choice == 1)
+                    snprintf(command, sizeof(command), "ALLOCATE_MEMORY:%d", value);
+                else if (choice == 2)
+                    snprintf(command, sizeof(command), "RELEASE_MEMORY:%d", value);
+                else if (choice == 4)
+                    snprintf(command, sizeof(command), "STACK_PUSH:%d", value);
+                else
+                    snprintf(command, sizeof(command), "QUEUE_ENQUEUE:%d", value);
+                break;
+
+            case 3: strcpy(command, "MEMORY_STATUS"); break;
+            case 5: strcpy(command, "STACK_POP"); break;
+            case 6: strcpy(command, "STACK_DISPLAY"); break;
+            case 8: strcpy(command, "QUEUE_DEQUEUE"); break;
+            case 9: strcpy(command, "QUEUE_DISPLAY"); break;
+            case 0: break;
+            default:
+                printf("Invalid choice.\n");
+        }
+
+        if (command[0] != '\0') {
+            if (send_command_to_core(command))
+                printf("\n%s\n", core_response);
+        }
+
+    } while (choice != 0);
+}
+
 int main(void)
 {
+    if (!connect_to_core())
+{
+    fprintf(stderr, "Unable to connect to Core. Start Core first.\n");
+    return EXIT_FAILURE;
+}
     int choice;
 
     while (1) {
@@ -356,12 +413,32 @@ int main(void)
                 show_help();
                 break;
 
-            case 0:
-                printf("Exiting CPU Simulator UI.\n");
-                return EXIT_SUCCESS;
+            case 8:
+    if (send_command_to_core("RESET\n")) {
+        printf("CPU reset command sent successfully.\n");
+    } else {
+        printf("Failed to send reset command.\n");
+    }
+    break;
 
-            default:
-                printf("Invalid choice. Try again.\n");
+                      case 9:
+                memory_stack_queue_menu();
+                break;
+
+           case 0:
+    printf("Shutting down CPU Simulator...\n");
+
+    send_command_to_core("EXIT");
+
+    if (ui_to_core_queue != (mqd_t)-1)
+        mq_close(ui_to_core_queue);
+
+    if (core_to_ui_queue != (mqd_t)-1)
+        mq_close(core_to_ui_queue);
+
+    printf("UI process stopped successfully.\n");
+    return EXIT_SUCCESS;
+
         }
     }
 }

@@ -85,92 +85,86 @@ int main()
     printf("FIFO connected successfully!\n");
 
     // Continuously receive messages
-    while (1)
+char line[BUFFER_SIZE];
+size_t line_length = 0;
+int terminate = 0;
+
+while (!terminate)
+{
+    ssize_t bytes_read;
+
+    memset(buffer, 0, sizeof(buffer));
+
+    bytes_read = read(fifo_fd, buffer, sizeof(buffer));
+
+    if (bytes_read > 0)
     {
-        ssize_t bytes_read;
-
-        memset(buffer, 0, sizeof(buffer));
-
-        bytes_read = read(fifo_fd, buffer, sizeof(buffer) - 1);
-
-        if (bytes_read > 0)
+        for (ssize_t i = 0; i < bytes_read; i++)
         {
-            buffer[bytes_read] = '\0';
-
-            // Termination message
-            if (strncmp(buffer, "TERMINATE", 9) == 0)
+            if (buffer[i] == '\n')
             {
-                write_log(
-                    "execution.log",
-                    "INFO",
-                    "Logger received TERMINATE signal."
-                );
+                line[line_length] = '\0';
 
-                printf("Termination signal received.\n");
-                break;
+                if (strncmp(line, "TERMINATE", 9) == 0)
+                {
+                    write_log("execution.log", "INFO",
+                              "Logger received TERMINATE signal.");
+
+                    printf("Termination signal received.\n");
+                    terminate = 1;
+                    break;
+                }
+                else if (strncmp(line, "ERROR|", 6) == 0)
+                {
+                    write_log("error.log", "ERROR", line + 6);
+                    printf("[ERROR] %s\n", line + 6);
+                }
+                else if (strncmp(line, "INFO:", 5) == 0)
+                {
+                    write_log("execution.log", "INFO", line + 5);
+                    printf("[INFO] %s\n", line + 5);
+                }
+                else if (line_length > 0)
+                {
+                    write_log("error.log", "ERROR",
+                              "Unknown log message format");
+
+                    printf("[ERROR] Unknown message format\n");
+                }
+
+                line_length = 0;
             }
-
-            // Error messages
-            if (strncmp(buffer, "ERROR|", 6) == 0)
+            else if (line_length < sizeof(line) - 1)
             {
-                write_log(
-                    "error.log",
-                    "ERROR",
-                    buffer + 6
-                );
-
-                printf("[ERROR] %s\n", buffer + 6);
+                line[line_length++] = buffer[i];
             }
-
-            // Information messages
-            else if (strncmp(buffer, "INFO:", 5) == 0)
-            {
-                write_log(
-                    "execution.log",
-                    "INFO",
-                    buffer + 5
-                );
-
-                printf("[INFO] %s\n", buffer + 5);
-            }
-
-            // Unknown messages
             else
             {
-                write_log(
-                    "error.log",
-                    "ERROR",
-                    "Unknown log message format"
-                );
-
-                printf("[ERROR] Unknown message format\n");
+                line_length = 0;
             }
         }
+    }
+    else if (bytes_read == 0)
+    {
+        close(fifo_fd);
 
-        else if (bytes_read == 0)
+        fifo_fd = open(FIFO_NAME, O_RDONLY);
+
+        if (fifo_fd == -1)
         {
-            // Writer closed the FIFO.
-            // Reopen it to wait for another writer.
-            close(fifo_fd);
-
-            fifo_fd = open(FIFO_NAME, O_RDONLY);
-
-            if (fifo_fd == -1)
-            {
-                perror("Reopening FIFO");
-                break;
-            }
-        }
-
-        else
-        {
-            if (errno == EINTR)
-                continue;
-
-            perror("Error reading FIFO");
+            perror("Reopening FIFO");
             break;
         }
     }
+    else
+    {
+        if (errno == EINTR)
+            continue;
+
+        perror("Error reading FIFO");
+        break;
+    }
+}
 
     close(fifo_fd);
 

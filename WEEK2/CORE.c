@@ -16,6 +16,7 @@
 
 int logger_fd = -1;
 
+
 // ==================== CPU MODULE ====================
 
 int cpu_running = 0;
@@ -139,8 +140,23 @@ void reset_cpu(void)
     cpu_running = 0;
     cpu_loaded = 0;
     instructions_executed = 0;
+    program_counter = 0;
+    program_count = 0;
+
+    for (int i = 0; i < 4; i++) {
+        registers[i] = 0;
+    }
+
+    for (int i = 0; i < MAX_MEMORY; i++) {
+        simulated_memory[i] = 0;
+    }
+
+    for (int i = 0; i < MAX_INSTRUCTIONS; i++) {
+        program_instructions[i][0] = '\0';
+    }
 
     printf("\nCPU reset successfully.\n");
+    printf("Registers, memory and program cleared.\n");
 }
 
 void cpu_status(void)
@@ -524,7 +540,7 @@ void send_log_to_logger(const char *message)
 
     char buffer[256];
 
-    snprintf(buffer, sizeof(buffer), "INFO:%s", message);
+    snprintf(buffer, sizeof(buffer), "INFO:%s\n", message);
 
     write(logger_fd, buffer, strlen(buffer));
 }
@@ -558,7 +574,7 @@ void process_core_message(const IPCMessage *message)
             if (program_count < MAX_INSTRUCTIONS) {
                 snprintf(program_instructions[program_count],
                          sizeof(program_instructions[program_count]),
-                         "%s", message->text);
+                         "%.127s", message->text);
                 program_count++;
                 printf("Instruction received: %s\n",
                        message->text);
@@ -609,10 +625,13 @@ void process_core_message(const IPCMessage *message)
     break;
 
         case IPC_CMD_RUN:
-            load_cpu();
-            execute_cpu();
-            break;
-        
+    if (cpu_loaded) {
+        execute_cpu();
+    } else {
+        printf("Please load a program first.\n");
+    }
+    break; 
+
         case IPC_CMD_STEP:
             execute_one_instruction();
             break;
@@ -625,229 +644,307 @@ void process_core_message(const IPCMessage *message)
             reset_cpu();
             break;
 
-        case IPC_CMD_EXIT:
-            printf("Exit command received through Message Queue.\n");
+                case IPC_CMD_ALLOCATE_MEMORY:
+        {
+            int size = atoi(message->text);
+
+            if (size > 0 && size <= MAX_MEMORY - memory_used)
+            {
+                memory_used += size;
+                printf("Memory allocated: %d units\n", size);
+            }
+            else
+            {
+                printf("Invalid size or insufficient memory.\n");
+            }
             break;
+        }
+
+        case IPC_CMD_RELEASE_MEMORY:
+        {
+            int size = atoi(message->text);
+
+            if (size > 0 && size <= memory_used)
+            {
+                memory_used -= size;
+                printf("Memory released: %d units\n", size);
+            }
+            else
+            {
+                printf("Invalid size or insufficient allocated memory.\n");
+            }
+            break;
+        }
+
+        case IPC_CMD_MEMORY_STATUS:
+            printf("Used memory: %d\n", memory_used);
+            printf("Free memory: %d\n", MAX_MEMORY - memory_used);
+            break;
+
+        case IPC_CMD_STACK_PUSH:
+        {
+            int value = atoi(message->text);
+
+            if (top < MAX_STACK - 1)
+            {
+                stack[++top] = value;
+                printf("Pushed %d onto stack.\n", value);
+            }
+            else
+            {
+                printf("Stack overflow.\n");
+            }
+            break;
+        }
+
+        case IPC_CMD_STACK_POP:
+            if (top >= 0)
+                printf("Popped: %d\n", stack[top--]);
+            else
+                printf("Stack is empty.\n");
+            break;
+
+        case IPC_CMD_STACK_DISPLAY:
+            display_stack();
+            break;
+
+        case IPC_CMD_QUEUE_ENQUEUE:
+        {
+            int value = atoi(message->text);
+
+            if (rear < MAX_QUEUE - 1)
+            {
+                if (front == -1)
+                    front = 0;
+
+                queue[++rear] = value;
+                printf("Inserted %d into queue.\n", value);
+            }
+            else
+            {
+                printf("Queue is full.\n");
+            }
+            break;
+        }
+
+        case IPC_CMD_QUEUE_DEQUEUE:
+            if (front != -1)
+            {
+                printf("Removed: %d\n", queue[front]);
+
+                if (front == rear)
+                {
+                    front = -1;
+                    rear = -1;
+                }
+                else
+                {
+                    front++;
+                }
+            }
+            else
+            {
+                printf("Queue is empty.\n");
+            }
+            break;
+
+        case IPC_CMD_QUEUE_DISPLAY:
+            display_queue();
+            break;
+
+        case IPC_CMD_EXIT:
+    printf("Exit command received through Message Queue.\n");
+
+    if (logger_fd != -1)
+    {
+        const char termination_message[] = "TERMINATE\n";
+
+        write(logger_fd, termination_message,
+              sizeof(termination_message) - 1);
+    }
+
+    break;
 
         default:
             printf("Unknown Message Queue command.\n");
             break;
     }
 
-        send_log_to_logger("Core processed a command");
+        if (message->command != IPC_CMD_EXIT)
+{
+    send_log_to_logger("Core processed a command");
 }
+}
+
 
 /* ==================== CORE SOCKET SERVER ==================== */
 
-void start_core_socket_server(void)
+/* ==================== CORE MESSAGE QUEUE SERVER ==================== */
+
+void start_core_message_queue_server(void)
 {
-    int server_fd;
-    int client_fd;
-    mqd_t core_queue;
-    struct sockaddr_in server_addr;
-    char buffer[128];
+    mqd_t ui_to_core_queue;
+    mqd_t core_to_ui_queue;
 
-    core_queue = ipc_open_queue(UI_TO_CORE_QUEUE, O_RDWR, 1);
+    IPCMessage message;
+    IPCMessage response;
 
-if (core_queue == (mqd_t)-1)
-{
-    perror("Failed to open Core Message Queue");
-    return;
-}
+    mq_unlink(UI_TO_CORE_QUEUE);
+    mq_unlink(CORE_TO_UI_QUEUE);
 
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    ui_to_core_queue = ipc_open_queue(
+        UI_TO_CORE_QUEUE, O_RDONLY, 1
+    );
 
-    if (server_fd == -1)
+    if (ui_to_core_queue == (mqd_t)-1)
     {
-        perror("Core socket creation failed");
+        perror("Failed to create UI-to-Core queue");
         return;
     }
 
-    int option = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR,
-               &option, sizeof(option));
+    core_to_ui_queue = ipc_open_queue(
+        CORE_TO_UI_QUEUE, O_WRONLY, 1
+    );
 
-    memset(&server_addr, 0, sizeof(server_addr));
-
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(8080);
-
-    if (bind(server_fd,
-             (struct sockaddr *)&server_addr,
-             sizeof(server_addr)) == -1)
+    if (core_to_ui_queue == (mqd_t)-1)
     {
-        perror("Core socket bind failed");
-        close(server_fd);
+        perror("Failed to create Core-to-UI queue");
+        mq_close(ui_to_core_queue);
         return;
     }
 
-    if (listen(server_fd, 5) == -1)
-    {
-        perror("Core socket listen failed");
-        close(server_fd);
-        return;
-    }
-
-    printf("\nCore socket server started on port 8080.\n");
+    printf("\nCore Message Queue Server Started.\n");
     printf("Waiting for commands from UI...\n");
 
     while (1)
     {
-        client_fd = accept(server_fd, NULL, NULL);
+        memset(&message, 0, sizeof(message));
+        memset(&response, 0, sizeof(response));
 
-        if (client_fd == -1)
+        if (!ipc_receive(ui_to_core_queue, &message))
         {
-            perror("Core accept failed");
+            perror("Failed to receive message from UI");
             continue;
         }
 
-        memset(buffer, 0, sizeof(buffer));
+        printf("\nCommand received from UI: %d\n",
+               message.command);
 
-        ssize_t bytes_received =
-            recv(client_fd, buffer, sizeof(buffer) - 1, 0);
+        process_core_message(&message);
 
-        if (bytes_received > 0)
+        response.type = IPC_MSG_RESPONSE;
+        response.command = message.command;
+        response.status = 1;
+
+        if (message.command == IPC_CMD_VIEW_REGISTERS)
         {
-            buffer[bytes_received] = '\0';
+            snprintf(response.text, sizeof(response.text),
+                "R0 = %d\nR1 = %d\nR2 = %d\nR3 = %d\nPC = %d\n",
+                registers[0], registers[1],
+                registers[2], registers[3],
+                program_counter);
+        }
+        else if (message.command == IPC_CMD_VIEW_MEMORY)
+        {
+            int length = 0;
 
-            printf("\nCommand received from UI: %s", buffer);
-
-                        IPCMessage message;
-            IPCMessage received_message;
-
-            memset(&message, 0, sizeof(message));
-
-            message.type = IPC_MSG_COMMAND;
-
-if (strncmp(buffer, "LOAD", 4) == 0)
-{
-    message.command = IPC_CMD_LOAD;
-}
-else if (strncmp(buffer, "RUN", 3) == 0)
-{
-    message.command = IPC_CMD_RUN;
-}
-else if (strncmp(buffer, "STOP", 4) == 0)
-{
-    message.command = IPC_CMD_STOP;
-}
-else if (strncmp(buffer, "RESET", 5) == 0)
-{
-    message.command = IPC_CMD_RESET;
-}
-else if (strncmp(buffer, "STEP", 4) == 0) 
-{
-    message.command = IPC_CMD_STEP;
-}
-else if (strncmp(buffer, "INSTRUCTION:", 12) == 0)
-{
-    message.command = IPC_CMD_INSTRUCTION;
-    snprintf(message.text, sizeof(message.text),
-             "%s", buffer + 12);
-}
-else if (strncmp(buffer, "ENDLOAD", 7) == 0)
-{
-    message.command = IPC_CMD_ENDLOAD;
-}
-else if (strncmp(buffer, "VIEW_REGISTERS", 14) == 0)
-{
-    message.command = IPC_CMD_VIEW_REGISTERS;
-}
-else if (strncmp(buffer, "VIEW_MEMORY", 11) == 0)
-{
-    message.command = IPC_CMD_VIEW_MEMORY;
-}
-else if (strncmp(buffer, "VIEW_STATUS", 11) == 0)
-{
-    message.command = IPC_CMD_VIEW_STATUS;
-}
-else if (strncmp(buffer, "EXIT", 4) == 0)
-{
-    message.command = IPC_CMD_EXIT;
-}
-else
-{
-    printf("Unknown command received from UI.\n");
-    message.command = 0;
-}
-
-            if (message.command != 0)
+            for (int i = 0; i < 10; i++)
             {
-                if (ipc_send(core_queue, &message))
+                length += snprintf(
+                    response.text + length,
+                    sizeof(response.text) - length,
+                    "Memory[%d] = %d\n",
+                    i, simulated_memory[i]
+                );
+            }
+        }
+        else if (message.command == IPC_CMD_VIEW_STATUS)
+        {
+            snprintf(response.text, sizeof(response.text),
+                "CPU Loaded: %s\nCPU Running: %s\n"
+                "Instructions Executed: %d\n"
+                "Total Instructions: %d\nPC: %d\n",
+                cpu_loaded ? "Yes" : "No",
+                cpu_running ? "Yes" : "No",
+                instructions_executed,
+                program_count,
+                program_counter);
+        }
+
+                else if (message.command == IPC_CMD_MEMORY_STATUS)
+        {
+            snprintf(response.text, sizeof(response.text),
+                "Total memory: %d units\nUsed memory: %d units\nFree memory: %d units\n",
+                MAX_MEMORY, memory_used,
+                MAX_MEMORY - memory_used);
+        }
+        else if (message.command == IPC_CMD_STACK_DISPLAY)
+        {
+            int length = 0;
+
+            if (top == -1)
+                snprintf(response.text, sizeof(response.text),
+                         "Stack is empty.\n");
+            else
+            {
+                length += snprintf(response.text + length,
+                    sizeof(response.text) - length,
+                    "Stack (top to bottom):\n");
+
+                for (int i = top; i >= 0; i--)
                 {
-                    printf("Command sent through POSIX Message Queue.\n");
-
-                    if (ipc_receive(core_queue, &received_message))
-                    {
-                        process_core_message(&received_message);
-
-                      if (received_message.command == IPC_CMD_VIEW_REGISTERS) {
-    char response[512];
-    int length = snprintf(response, sizeof(response),
-        "R0 = %d\nR1 = %d\nR2 = %d\nR3 = %d\nProgram Counter (PC) = %d\n",
-        registers[0], registers[1], registers[2],
-        registers[3], program_counter);
-
-    send(client_fd, response, length, 0);
-}  
-if (received_message.command == IPC_CMD_VIEW_MEMORY) {
-    char response[512];
-    int length = 0;
-
-    for (int i = 0; i < 10; i++) {
-        length += snprintf(response + length,
-                           sizeof(response) - length,
-                           "Memory[%d] = %d\n",
-                           i, simulated_memory[i]);
-    }
-
-    send(client_fd, response, length, 0);
-}
-if (received_message.command == IPC_CMD_VIEW_STATUS) {
-    char response[512];
-
-    int length = snprintf(response, sizeof(response),
-        "CPU Loaded: %s\n"
-        "CPU Running: %s\n"
-        "Instructions Executed: %d\n"
-        "Total Instructions: %d\n"
-        "Program Counter (PC): %d\n",
-        cpu_loaded ? "Yes" : "No",
-        cpu_running ? "Yes" : "No",
-        instructions_executed,
-        program_count,
-        program_counter);
-
-    send(client_fd, response, length, 0);
-}
-                    }
-                    else
-                    {
-                        perror("Message Queue receive failed");
-                    }
-                }
-                else
-                {
-                    perror("Message Queue send failed");
+                    length += snprintf(response.text + length,
+                        sizeof(response.text) - length,
+                        "%d\n", stack[i]);
                 }
             }
+        }
+        else if (message.command == IPC_CMD_QUEUE_DISPLAY)
+        {
+            int length = 0;
 
-            if (message.command == IPC_CMD_EXIT)
+            if (front == -1)
+                snprintf(response.text, sizeof(response.text),
+                         "Queue is empty.\n");
+            else
             {
-                close(client_fd);
-                break;
+                length += snprintf(response.text + length,
+                    sizeof(response.text) - length,
+                    "Queue (front to rear): ");
+
+                for (int i = front; i <= rear; i++)
+                {
+                    length += snprintf(response.text + length,
+                        sizeof(response.text) - length,
+                        "%d ", queue[i]);
+                }
             }
         }
 
-        close(client_fd);
+        else
+        {
+            snprintf(response.text, sizeof(response.text),
+                     "Command processed successfully.");
+        }
+
+        if (!ipc_send(core_to_ui_queue, &response))
+        {
+            perror("Failed to send response to UI");
+        }
+
+        if (message.command == IPC_CMD_EXIT)
+        {
+            printf("\nExit command received. Stopping Core...\n");
+            break;
+        }
     }
 
-    mq_close(core_queue);
+    mq_close(ui_to_core_queue);
+    mq_close(core_to_ui_queue);
 
-    close(server_fd);
+    ipc_remove_queues();
 
-    printf("Core socket server stopped.\n");
+    printf("\nCore Message Queue Server Stopped.\n");
 }
 
 // ==================== MAIN MENU ====================
@@ -860,7 +957,13 @@ int main(void)
 
     connect_to_logger();
 
-    start_core_socket_server();
+    start_core_message_queue_server();
+
+if (logger_fd != -1)
+{
+    close(logger_fd);
+    logger_fd = -1;
+}
 
     printf("\nCore Process stopped.\n");
 
