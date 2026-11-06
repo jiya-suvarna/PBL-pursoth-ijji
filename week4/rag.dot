@@ -2,12 +2,22 @@ digraph RAG {
 rankdir=LR;
 label="Resource Allocation Graph";
 labelloc=t;
-P1 [shape=circle, label="P1", style=filled, fillcolor=lightcoral];
-P2 [shape=circle, label="P2", style=filled, fillcolor=lightcoral];
+P1 [shape=circle, label="P1", style=filled, fillcolor=lightblue];
+P2 [shape=circle, label="P2", style=filled, fillcolor=lightblue];
+P3 [shape=circle, label="P3", style=filled, fillcolor=lightblue];
 R1 [shape=box, label="R1", style=filled, fillcolor=lightyellow];
 R2 [shape=box, label="R2", style=filled, fillcolor=lightyellow];
+R3 [shape=box, label="R3", style=filled, fillcolor=lightyellow];
 R1 -> P1 [label="Allocated: 1", color=green];
+P1 -> R1 [label="Request: 1", color=orange];
 P1 -> R2 [label="Request: 1", color=orange];
-P2 -> R1 [label="Request: 1", color=orange];
+R3 -> P1 [label="Allocated: 1", color=green];
+R1 -> P2 [label="Allocated: 1", color=green];
 R2 -> P2 [label="Allocated: 1", color=green];
+P2 -> R2 [label="Request: 1", color=orange];
+P2 -> R3 [label="Request: 1", color=orange];
+P3 -> R1 [label="Request: 1", color=orange];
+R2 -> P3 [label="Allocated: 1", color=green];
+R3 -> P3 [label="Allocated: 1", color=green];
+P3 -> R3 [label="Request: 1", color=orange];
 }

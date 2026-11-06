@@ -585,6 +585,34 @@ static void on_view_rag(GtkButton *button, gpointer data)
         return;
     }
 
+        // Convert RAG DOT file into PNG
+    int result = system("dot -Tpng rag.dot -o rag.png");
+
+    if (result != 0)
+    {
+        show_output("Failed to generate RAG image.");
+        set_status("Graph generation failed");
+        return;
+    }
+
+    // Create a separate window to display RAG
+    GtkWidget *rag_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+
+    gtk_window_set_title(GTK_WINDOW(rag_window),
+                         "Resource Allocation Graph");
+
+    gtk_window_set_default_size(GTK_WINDOW(rag_window), 800, 600);
+
+    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
+
+    GtkWidget *image = gtk_image_new_from_file("rag.png");
+
+    gtk_container_add(GTK_CONTAINER(scroll), image);
+
+    gtk_container_add(GTK_CONTAINER(rag_window), scroll);
+
+    gtk_widget_show_all(rag_window);
+
     show_output(
         "RESOURCE ALLOCATION GRAPH\n\n"
         "RAG generated successfully.\n\n"
